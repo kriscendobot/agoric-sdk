@@ -6,7 +6,9 @@ worker, using Moddable’s XS JavaScript engine.
 Xsnap provides a Node.js API for controlling Xsnap workers.
 
 ```js
-const worker = await xsnap();
+const worker = await xsnap({
+  variant: 'latest', // default: 'legacy'
+});
 await worker.evaluate(`
   // Incrementer, running on XS.
   function handleCommand(message) {
@@ -79,6 +81,18 @@ The parent and child communicate using "commands".
   respond to commands from the XS child.
 
 ![state diagram](doc/xsnap-states.svg)
+
+# Compatibility
+
+The `variant` is either `"legacy"` or `"latest"`.
+For purposes of backward-compatibility, the `"legacy"` variant ensures
+that all future versions of `xsnap` will read snapshots created by any
+prior version produced by the `"legacy"` variant.
+
+By contrast, the `"latest"` variant should not be asked to read snapshots
+produced by any previous version of `xsnap`, and in exchange, may have
+new features and changes in behavior including observably different behavior
+due to bug fixes.
 
 <!-- FIXME this stopped working some time ago (was never in CI)
 https://github.com/Agoric/agoric-sdk/issues/9955
