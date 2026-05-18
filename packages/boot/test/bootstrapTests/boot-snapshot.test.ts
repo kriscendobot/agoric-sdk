@@ -17,7 +17,7 @@ test.serial('boot snapshot restore is equivalent and isolated', async t => {
   let forkB: Awaited<ReturnType<typeof makeSwingsetTestKit>> | undefined;
   try {
     const snapshot = {
-      ...base.makeSnapshot(),
+      ...(await base.makeSnapshot()),
       kernelBundle: await buildKernelBundle(),
     };
     forkA = await base.forkFromSnapshot(snapshot);

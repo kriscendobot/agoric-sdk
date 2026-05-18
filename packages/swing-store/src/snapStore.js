@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { createGzip, createGunzip } from 'node:zlib';
 import { Fail, q } from '@endo/errors';
 import { withDeferredCleanup } from '@agoric/internal';
+import { blobToBuffer } from './dbBackend.js';
 import { buffer } from './util.js';
 
 /**
@@ -66,7 +67,7 @@ import { buffer } from './util.js';
  * @typedef {{
  *   hasHash: (vatID: string, hash: string) => boolean,
  *   listAllSnapshots: () => Iterable<SnapshotRow>,
- *   dumpSnapshots: (includeHistorical?: boolean) => Record<string, Array<{snapPos: number, hash: string, compressedSnapshot: Buffer, inUse: (null | 0 | 1)}>>,
+ *   dumpSnapshots: (includeHistorical?: boolean) => Record<string, Array<{snapPos: number, hash: string, compressedSnapshot: Buffer | null | undefined, inUse: (null | 0 | 1)}>>,
  *   deleteSnapshotByHash: (vatID: string, hash: string) => void,
  * }} SnapStoreDebug
  *
@@ -308,9 +309,10 @@ export function makeSnapStore(
     snapshotInfo || Fail`snapshot ${q(name)} not available`;
     const { compressedSnapshot } = snapshotInfo;
     compressedSnapshot || Fail`artifact ${q(name)} is not available`;
+    const buf = /** @type {Buffer} */ (blobToBuffer(compressedSnapshot));
     // weird construct here is because we need to be able to throw before the generator starts
     async function* exporter() {
-      const gzReader = Readable.from(compressedSnapshot);
+      const gzReader = Readable.from(buf);
       const unzipper = createGunzip();
       const snapshotReader = gzReader.pipe(unzipper);
       yield* snapshotReader;
@@ -336,7 +338,9 @@ export function makeSnapStore(
     loadInfo || Fail`no snapshot available for vat ${q(vatID)}`;
     const { hash: snapshotID, compressedSnapshot } = loadInfo;
     compressedSnapshot || Fail`no snapshot available for vat ${q(vatID)}`;
-    const gzReader = Readable.from(compressedSnapshot);
+    const gzReader = Readable.from(
+      /** @type {Buffer} */ (blobToBuffer(compressedSnapshot)),
+    );
     const snapReader = gzReader.pipe(createGunzip());
     const hashStream = createHash('sha256');
     const output = new PassThrough();
@@ -723,7 +727,7 @@ export function makeSnapStore(
     const sql = includeHistorical
       ? sqlDumpAllSnapshots
       : sqlDumpCurrentSnapshots;
-    /** @type {Record<string, Array<{snapPos: number, hash: string, compressedSnapshot: Buffer, inUse: (null | 0 | 1)}>>} */
+    /** @type {Record<string, Array<{snapPos: number, hash: string, compressedSnapshot: Buffer | null | undefined, inUse: (null | 0 | 1)}>>} */
     const dump = {};
     for (const row of sql.iterate()) {
       const { vatID, snapPos, hash, compressedSnapshot, inUse } = row;
@@ -733,7 +737,9 @@ export function makeSnapStore(
       dump[vatID].push({
         snapPos,
         hash,
-        compressedSnapshot,
+        // Wrap as Buffer for consumers that pipe it through Readable.from
+        // (Uint8Array iterates byte-by-byte, which would emit numbers).
+        compressedSnapshot: blobToBuffer(compressedSnapshot),
         inUse: inUse ? 1 : 0,
       });
     }

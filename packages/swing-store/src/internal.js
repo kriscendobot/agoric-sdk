@@ -5,7 +5,7 @@ import { Fail, q } from '@endo/errors';
  * @import {TranscriptStoreInternal} from './transcriptStore.js';
  * @import {BundleStoreInternal} from './bundleStore.js';
  * @import {KVStore} from '@agoric/internal/src/kv-store.js';
- * @import {Database} from 'better-sqlite3';
+ * @import {Database} from './dbBackend.js';
  */
 
 /**

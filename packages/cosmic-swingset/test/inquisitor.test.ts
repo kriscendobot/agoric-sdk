@@ -170,7 +170,7 @@ test('vat lifecycle', async t => {
     removeCallback,
   } = tmp.fileSync({ detachDescriptor: true });
   t.teardown(() => removeCallback());
-  fs.writeSync(fd, swingStore.debug.serialize());
+  fs.writeSync(fd, await swingStore.debug.serialize());
   const bundleCache = await unsafeSharedBundleCache;
   const bundle = await bundleCache.load(
     resolveToPath('@agoric/swingset-vat/tools/vat-puppet-v2.js'),

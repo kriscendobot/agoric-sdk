@@ -1,7 +1,6 @@
-import sqlite3 from 'better-sqlite3';
-
 import { Fail, q } from '@endo/errors';
 
+import { createDatabase } from './dbBackend.js';
 import { dbFileInDirectory, getKVStoreKeyType } from './util.js';
 import { makeBundleStore } from './bundleStore.js';
 import { makeSnapStore } from './snapStore.js';
@@ -96,7 +95,7 @@ export function makeSwingStoreExporter(dirPath, options = {}) {
   validateArtifactMode(artifactMode);
 
   const filePath = dbFileInDirectory(dirPath);
-  const db = sqlite3(filePath);
+  const db = createDatabase(filePath);
 
   // Execute the data export in a (read) transaction, to ensure that we are
   // capturing the state of the database at a single point in time. Our close()
@@ -133,8 +132,7 @@ export function makeSwingStoreExporter(dirPath, options = {}) {
    */
   function getHostKV(key) {
     getKVStoreKeyType(key) === 'host' || Fail`getHostKV requires host keys`;
-    // @ts-expect-error unknown
-    return sqlKVGet.get(key);
+    return /** @type {string | undefined} */ (sqlKVGet.get(key));
   }
 
   /** @type {any} */

@@ -1,9 +1,8 @@
 // @ts-check
 /* eslint-env node */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as pathlib from 'node:path';
-
-import sqlite3 from 'better-sqlite3';
 
 import { Fail, q } from '@endo/errors';
 
@@ -11,6 +10,7 @@ import { attenuate } from '@agoric/internal';
 import { makeKVStore } from '@agoric/internal/src/kv-store.js';
 import { TRUE } from '@agoric/internal/src/js-utils.js';
 
+import { createDatabase, backupDatabase } from './dbBackend.js';
 import { dbFileInDirectory, getKVStoreKeyType } from './util.js';
 import { makeTranscriptStore } from './transcriptStore.js';
 import { makeSnapStore } from './snapStore.js';
@@ -19,7 +19,9 @@ import { createSHA256 } from './hasher.js';
 import { makeSnapStoreIO } from './snapStoreIO.js';
 import { doRepairMetadata } from './repairMetadata.js';
 
-// https://github.com/WiseLibs/better-sqlite3/blob/HEAD/docs/api.md#new-databasepath-options
+// In-memory database sentinel recognised by every SQLite binding the
+// dbBackend module is allowed to wire in. See dbBackend.js for the
+// backend-entrypoint contract.
 const IN_MEMORY = ':memory:';
 
 /**
@@ -79,7 +81,7 @@ const IN_MEMORY = ':memory:';
  *
  * @typedef {{
  *   dump: (includeHistorical?: boolean) => SwingStoreDebugDump,
- *   serialize: () => Buffer,
+ *   serialize: () => Promise<Buffer>,
  * }} SwingStoreDebugTools
  *
  * @typedef {{
@@ -194,6 +196,11 @@ export function makeSwingStore(path, forceReset, options = {}) {
     typeof exportCallback === 'function' ||
     Fail`export callback must be a function`;
 
+  // Holds a temp-file path when `serialized` is supplied so we can clean it
+  // up on close. The active backend cannot construct a DB from a Buffer
+  // directly, so we stage the bytes to a temp file and open the path.
+  let serializedTempPath = null;
+
   let crankhasher;
   function resetCrankhash() {
     crankhasher = createSHA256();
@@ -211,8 +218,16 @@ export function makeSwingStore(path, forceReset, options = {}) {
       fs.mkdirSync(path, { recursive: true });
       filePath = dbFileInDirectory(path);
     }
+  } else if (serialized) {
+    // Stage the serialized bytes to a temp file so the backend (which
+    // reads paths, not Buffers) can mount it as an on-disk database.
+    // The temp file is unlinked when the SwingStore closes.
+    const dir = fs.mkdtempSync(pathlib.join(os.tmpdir(), 'swing-store-'));
+    serializedTempPath = pathlib.join(dir, 'swingstore.sqlite');
+    fs.writeFileSync(serializedTempPath, serialized);
+    filePath = serializedTempPath;
   } else {
-    filePath = ':memory:';
+    filePath = IN_MEMORY;
   }
 
   let traceOutput = traceFile
@@ -233,10 +248,7 @@ export function makeSwingStore(path, forceReset, options = {}) {
   }
 
   /** @type {*} */
-  let db = sqlite3(/** @type {string} */ (serialized || filePath), {
-    readonly,
-    // verbose: console.log,
-  });
+  let db = createDatabase(filePath, { readonly });
 
   // We use WAL (write-ahead log) mode to allow a background export process to
   // keep reading from an earlier DB state, while allowing execution to proceed
@@ -254,16 +266,23 @@ export function makeSwingStore(path, forceReset, options = {}) {
   function setUnsafeFastMode(enabled) {
     const journalMode = enabled ? 'off' : 'wal';
     const synchronousMode = enabled ? 'normal' : 'full';
-    !db.inTransaction || Fail`must not be in a transaction`;
+    !db.isTransaction || Fail`must not be in a transaction`;
 
-    db.unsafeMode(!!enabled);
-    // The WAL mode is persistent so it's not possible to switch to a different
-    // mode for an existing DB.
+    // SQLite's defensive mode (on by default in the active binding) blocks
+    // `PRAGMA journal_mode=off`. Disabling it before that PRAGMA is the
+    // moral equivalent of better-sqlite3's `unsafeMode(true)`. WAL mode
+    // does not require disabling defensive, so we only touch defensive
+    // when entering unsafe fast mode.
+    if (enabled) {
+      db.enableDefensive(false);
+    }
+    // The WAL mode is persistent so it's not possible to switch to a
+    // different mode for an existing DB.
     const actualMode = db.pragma(`journal_mode=${journalMode}`, {
       simple: true,
     });
     actualMode === journalMode ||
-      filePath === ':memory:' ||
+      filePath === IN_MEMORY ||
       Fail`Couldn't set swing-store DB to ${journalMode} mode (is ${actualMode})`;
     db.pragma(`synchronous=${synchronousMode}`);
   }
@@ -294,9 +313,9 @@ export function makeSwingStore(path, forceReset, options = {}) {
   // hostStorage.commit() call.
   function ensureTxn() {
     db || Fail`db not initialized`;
-    if (!db.inTransaction) {
+    if (!db.isTransaction) {
       sqlBeginTransaction.run();
-      db.inTransaction || Fail`must be in a transaction`;
+      db.isTransaction || Fail`must be in a transaction`;
     }
     return db;
   }
@@ -320,7 +339,10 @@ export function makeSwingStore(path, forceReset, options = {}) {
 
   function noteExport(key, value) {
     if (exportCallback) {
-      sqlAddPendingExport.run(key, value);
+      // Bind `null` for SQLite NULL; better-sqlite3 coerced `undefined`
+      // implicitly but native node:sqlite / @photostructure/sqlite reject
+      // undefined as an unbindable type.
+      sqlAddPendingExport.run(key, value === undefined ? null : value);
     }
   }
 
@@ -505,7 +527,7 @@ export function makeSwingStore(path, forceReset, options = {}) {
    */
   async function commit() {
     db || Fail`db not initialized`;
-    if (db.inTransaction) {
+    if (db.isTransaction) {
       flushPendingExports();
       sqlCommit.run();
     }
@@ -517,9 +539,35 @@ export function makeSwingStore(path, forceReset, options = {}) {
    */
   async function close() {
     db || Fail`db not initialized`;
+    if (db.isTransaction) {
+      // Roll back the uncommitted transaction explicitly. better-sqlite3
+      // rolled back on close, but the native `node:sqlite` /
+      // `@photostructure/sqlite` `close()` does not, which leaves a
+      // pending WAL frame that another connection sees as
+      // SQLITE_BUSY on its first write.
+      try {
+        db.exec('ROLLBACK');
+      } catch (_err) {
+        // ignore: if there's no active transaction we still want to close
+      }
+    }
     db.close();
     db = null;
     stopTrace();
+    if (serializedTempPath) {
+      // Best-effort cleanup of the temp directory holding the staged
+      // serialized snapshot; ignore errors so close() never fails on a
+      // cosmetic teardown.
+      try {
+        fs.rmSync(pathlib.dirname(serializedTempPath), {
+          recursive: true,
+          force: true,
+        });
+      } catch (_err) {
+        // ignore
+      }
+      serializedTempPath = null;
+    }
   }
 
   /** @type {SwingStoreInternal} */
@@ -541,17 +589,39 @@ export function makeSwingStore(path, forceReset, options = {}) {
    * Return a Buffer with the entire DB state, useful for cloning a
    * small swingstore in unit tests.
    *
-   * @returns {Buffer}
+   * Uses the SQLite Online Backup API via {@link backupDatabase} to write
+   * a snapshot of the open database to a temp file, then reads the bytes
+   * back. Works for both in-memory and on-disk (WAL) source databases.
+   *
+   * The Online Backup API requires the source connection to be at a
+   * transaction boundary (no active write transaction), so we commit any
+   * outstanding transaction first and immediately re-open one to preserve
+   * the swing-store invariant of being inside `BEGIN IMMEDIATE`.
+   *
+   * @returns {Promise<Buffer>}
    */
-  function serialize() {
-    // An on-disk DB with WAL mode enabled seems to produce a
-    // serialized Buffer that can be unserialized, but the resulting
-    // 'db' object fails all operations with SQLITE_CANTOPEN. So
-    // pre-emptively throw.
-    if (filePath !== ':memory:') {
-      throw Error('on-disk DBs with WAL mode enabled do not serialize well');
+  async function serialize() {
+    db || Fail`db not initialized`;
+    const wasInTransaction = db.isTransaction;
+    if (wasInTransaction) {
+      sqlCommit.run();
     }
-    return db.serialize();
+    const dir = fs.mkdtempSync(pathlib.join(os.tmpdir(), 'swing-store-backup-'));
+    const destPath = pathlib.join(dir, 'snapshot.sqlite');
+    await null;
+    try {
+      await backupDatabase(db, destPath);
+      return fs.readFileSync(destPath);
+    } finally {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch (_err) {
+        // ignore
+      }
+      if (wasInTransaction) {
+        sqlBeginTransaction.run();
+      }
+    }
   }
 
   function dumpKVEntries() {

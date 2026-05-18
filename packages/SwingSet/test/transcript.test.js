@@ -8,10 +8,10 @@ import { buildVatController, loadBasedir } from '../src/index.js';
 async function buildTrace(c, debug) {
   const states = []; // list of { dump, serialized }
   while (c.dump().runQueue.length && c.dump().gcActions.length) {
-    states.push({ dump: debug.dump(), serialized: debug.serialize() });
+    states.push({ dump: debug.dump(), serialized: await debug.serialize() });
     await c.step();
   }
-  states.push({ dump: debug.dump(), serialized: debug.serialize() });
+  states.push({ dump: debug.dump(), serialized: await debug.serialize() });
   await c.shutdown();
   return states;
 }

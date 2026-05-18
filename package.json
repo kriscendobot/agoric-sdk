@@ -103,7 +103,7 @@
     "rxjs@npm:^7.5.5": "patch:rxjs@npm%3A7.5.5#~/.yarn/patches/rxjs-npm-7.5.5-d0546b1ccb.patch"
   },
   "dependenciesMeta": {
-    "better-sqlite3@10.1.0": {
+    "@photostructure/sqlite@1.2.1": {
       "built": true
     },
     "dprint@0.53.0": {
