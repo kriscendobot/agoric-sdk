@@ -118,6 +118,67 @@ test('in-memory kvStore read/write', async t => {
   checkKVState(t, ss2);
 });
 
+test('debug.serialize round-trip via options.serialized', async t => {
+  // `debug.serialize()` is the synchronous Buffer-shaped snapshot path that
+  // SwingSet/cosmic-swingset/boot tests across the monorepo rely on. Under
+  // the node:sqlite backend, `serialize()` flows through `vacuumIntoSync()`
+  // in `sqliteBackend.js`. The legacy `{ serialized }` constructor option
+  // is the symmetric load path. Exercise both ends here so a regression on
+  // either side surfaces in the swing-store package's own tests rather than
+  // breaking the broader cross-package caller set.
+  const exportLog = makeExportLog();
+  const ss1 = initSwingStore(null, { exportCallback: exportLog.callback });
+  testKVStore(t, ss1, exportLog);
+  await ss1.hostStorage.commit();
+  const serialized = ss1.debug.serialize();
+  t.true(Buffer.isBuffer(serialized), 'serialize() returns a Buffer');
+  t.true(serialized.length > 0, 'serialized Buffer is non-empty');
+  await ss1.hostStorage.close();
+
+  const ss2 = initSwingStore(null, { serialized });
+  checkKVState(t, ss2);
+  await ss2.hostStorage.close();
+});
+
+test('debug.serialize while inside an open transaction', async t => {
+  // `vacuumIntoSync()` refuses to run inside an open transaction; the
+  // `serialize()` wrapper briefly commits and re-opens the transaction so
+  // callers (notably SwingSet's transcript tests) can snapshot a live DB
+  // that has uncommitted work. This test pins the in-transaction branch.
+  const ss = initSwingStore(null);
+  const { kvStore, startCrank, endCrank } = ss.kernelStorage;
+  startCrank();
+  kvStore.set('inflight.key', 'inflight.value');
+  // The crank opens a transaction; do not endCrank/commit before serializing.
+  const serialized = ss.debug.serialize();
+  t.true(Buffer.isBuffer(serialized));
+  // After serialize() the original DB should still be in a transaction so
+  // the caller can continue cranking.
+  kvStore.set('inflight.after', 'after.value');
+  endCrank();
+  await ss.hostStorage.commit();
+
+  const ss2 = initSwingStore(null, { serialized });
+  t.is(ss2.kernelStorage.kvStore.get('inflight.key'), 'inflight.value');
+  // The post-snapshot write must NOT be in the serialized image.
+  t.is(ss2.kernelStorage.kvStore.get('inflight.after'), undefined);
+  await ss2.hostStorage.close();
+  await ss.hostStorage.close();
+});
+
+test('debug.serialize rejects on-disk DBs', async t => {
+  // The legacy better-sqlite3 backend refused to serialize WAL-mode on-disk
+  // DBs; the new backend preserves that restriction so callers that depend
+  // on the (in-memory-only) shape do not silently get a different artifact.
+  const [dbDir, cleanup] = tmpDir('testdb');
+  t.teardown(cleanup);
+  const ss = initSwingStore(dbDir);
+  t.throws(() => ss.debug.serialize(), {
+    message: /on-disk DBs with WAL mode enabled do not serialize well/,
+  });
+  await ss.hostStorage.close();
+});
+
 test('persistent kvStore read/write/re-open', async t => {
   const [dbDir, cleanup] = tmpDir('testdb');
   t.teardown(cleanup);
