@@ -5,13 +5,13 @@ import { Fail, q } from '@endo/errors';
  * @import {TranscriptStoreInternal} from './transcriptStore.js';
  * @import {BundleStoreInternal} from './bundleStore.js';
  * @import {KVStore} from '@agoric/internal/src/kv-store.js';
- * @import {Database} from 'better-sqlite3';
+ * @import {BackendDatabase} from './sqliteBackend.js';
  */
 
 /**
  * @typedef {{
  *    dirPath: string | null,
- *    db: Database,
+ *    db: BackendDatabase,
  *    kvStore: KVStore,
  *    transcriptStore: TranscriptStoreInternal,
  *    snapStore: SnapStoreInternal,

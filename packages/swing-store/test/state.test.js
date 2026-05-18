@@ -1,5 +1,6 @@
 // @ts-check
 
+import path from 'node:path';
 import test from 'ava';
 import tmp from 'tmp';
 
@@ -100,12 +101,20 @@ function testKVStore(t, storage, exportLog) {
   ]);
 }
 
-test('in-memory kvStore read/write', t => {
+test('in-memory kvStore read/write', async t => {
+  const [scratchDir, cleanupScratch] = tmpDir('state-backup');
+  t.teardown(cleanupScratch);
   const exportLog = makeExportLog();
   const ss1 = initSwingStore(null, { exportCallback: exportLog.callback });
   testKVStore(t, ss1, exportLog);
-  const serialized = ss1.debug.serialize();
-  const ss2 = initSwingStore(null, { serialized });
+  // Per mhofman's review on Agoric/agoric-sdk#12198, DB-serialization tests
+  // use the native backup API rather than the legacy
+  // `serialize()`/`{ serialized }` round-trip. The native `node:sqlite`
+  // backup API refuses to run inside an open transaction, so the test
+  // commits the kernel's work first.
+  await ss1.hostStorage.commit();
+  await ss1.debug.backupTo(path.join(scratchDir, 'swingstore.sqlite'));
+  const ss2 = openSwingStore(scratchDir);
   checkKVState(t, ss2);
 });
 

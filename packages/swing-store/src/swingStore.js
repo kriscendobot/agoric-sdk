@@ -1,9 +1,8 @@
 // @ts-check
 /* eslint-env node */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as pathlib from 'node:path';
-
-import sqlite3 from 'better-sqlite3';
 
 import { Fail, q } from '@endo/errors';
 
@@ -18,8 +17,16 @@ import { makeBundleStore } from './bundleStore.js';
 import { createSHA256 } from './hasher.js';
 import { makeSnapStoreIO } from './snapStoreIO.js';
 import { doRepairMetadata } from './repairMetadata.js';
+import {
+  backupDatabase,
+  makeDatabase,
+  vacuumIntoSync,
+} from './sqliteBackend.js';
 
-// https://github.com/WiseLibs/better-sqlite3/blob/HEAD/docs/api.md#new-databasepath-options
+// SQLite construction is centralized in sqliteBackend.js so the rest of the
+// package is free of driver-specific knowledge. The backend currently uses
+// Node's built-in `node:sqlite` (stabilized in Node 22.16, ships stable in
+// Node 24); a previous version used the third-party `better-sqlite3`.
 const IN_MEMORY = ':memory:';
 
 /**
@@ -80,6 +87,7 @@ const IN_MEMORY = ':memory:';
  * @typedef {{
  *   dump: (includeHistorical?: boolean) => SwingStoreDebugDump,
  *   serialize: () => Buffer,
+ *   backupTo: (destPath: string) => Promise<number>,
  * }} SwingStoreDebugTools
  *
  * @typedef {{
@@ -201,6 +209,8 @@ export function makeSwingStore(path, forceReset, options = {}) {
   resetCrankhash();
 
   let filePath;
+  /** @type {string | undefined} */
+  let serializedScratchDir;
   if (path) {
     if (forceReset) {
       fs.rmSync(path, { recursive: true, force: true });
@@ -211,6 +221,19 @@ export function makeSwingStore(path, forceReset, options = {}) {
       fs.mkdirSync(path, { recursive: true });
       filePath = dbFileInDirectory(path);
     }
+  } else if (serialized) {
+    // The `options.serialized` API loads a Buffer-shaped database into memory.
+    // The previous `better-sqlite3` backend supported this directly via its
+    // constructor's Buffer overload; `node:sqlite` has no equivalent
+    // constructor. The simplest correct emulation: write the buffer to a
+    // temporary file, open the temp file as the database, and clean the temp
+    // file up on close. The on-disk file persists for the database's lifetime
+    // because `node:sqlite` keeps it memory-mapped.
+    serializedScratchDir = fs.mkdtempSync(
+      pathlib.join(os.tmpdir(), 'swing-store-serialized-'),
+    );
+    filePath = pathlib.join(serializedScratchDir, 'snapshot.sqlite');
+    fs.writeFileSync(filePath, serialized);
   } else {
     filePath = ':memory:';
   }
@@ -233,9 +256,8 @@ export function makeSwingStore(path, forceReset, options = {}) {
   }
 
   /** @type {*} */
-  let db = sqlite3(/** @type {string} */ (serialized || filePath), {
+  let db = makeDatabase(filePath, {
     readonly,
-    // verbose: console.log,
   });
 
   // We use WAL (write-ahead log) mode to allow a background export process to
@@ -254,7 +276,7 @@ export function makeSwingStore(path, forceReset, options = {}) {
   function setUnsafeFastMode(enabled) {
     const journalMode = enabled ? 'off' : 'wal';
     const synchronousMode = enabled ? 'normal' : 'full';
-    !db.inTransaction || Fail`must not be in a transaction`;
+    !db.isTransaction || Fail`must not be in a transaction`;
 
     db.unsafeMode(!!enabled);
     // The WAL mode is persistent so it's not possible to switch to a different
@@ -294,9 +316,9 @@ export function makeSwingStore(path, forceReset, options = {}) {
   // hostStorage.commit() call.
   function ensureTxn() {
     db || Fail`db not initialized`;
-    if (!db.inTransaction) {
+    if (!db.isTransaction) {
       sqlBeginTransaction.run();
-      db.inTransaction || Fail`must be in a transaction`;
+      db.isTransaction || Fail`must be in a transaction`;
     }
     return db;
   }
@@ -505,7 +527,7 @@ export function makeSwingStore(path, forceReset, options = {}) {
    */
   async function commit() {
     db || Fail`db not initialized`;
-    if (db.inTransaction) {
+    if (db.isTransaction) {
       flushPendingExports();
       sqlCommit.run();
     }
@@ -520,6 +542,14 @@ export function makeSwingStore(path, forceReset, options = {}) {
     db.close();
     db = null;
     stopTrace();
+    if (serializedScratchDir) {
+      try {
+        fs.rmSync(serializedScratchDir, { recursive: true, force: true });
+      } catch (_err) {
+        // Best-effort cleanup.
+      }
+      serializedScratchDir = undefined;
+    }
   }
 
   /** @type {SwingStoreInternal} */
@@ -538,20 +568,70 @@ export function makeSwingStore(path, forceReset, options = {}) {
   }
 
   /**
-   * Return a Buffer with the entire DB state, useful for cloning a
-   * small swingstore in unit tests.
+   * Return a Buffer with the entire DB state, useful for cloning a small
+   * swingstore in unit tests.
+   *
+   * The previous `better-sqlite3` backend exposed a native synchronous
+   * `serialize()` returning a Buffer. The built-in `node:sqlite` does not
+   * expose an in-place synchronous serialize, but the `VACUUM INTO`
+   * statement is synchronous and produces a clone we can read back; that
+   * preserves the legacy shape for the broad set of callers across the
+   * monorepo.
+   *
+   * Per mhofman's review on Agoric/agoric-sdk#12198, new test code should
+   * prefer the asynchronous `backupTo()` helper below, which uses the native
+   * `sqlite.backup` API directly.
    *
    * @returns {Buffer}
    */
   function serialize() {
-    // An on-disk DB with WAL mode enabled seems to produce a
-    // serialized Buffer that can be unserialized, but the resulting
-    // 'db' object fails all operations with SQLITE_CANTOPEN. So
-    // pre-emptively throw.
+    // An on-disk DB with WAL mode enabled cannot be cloned safely; honor the
+    // prior backend's restriction.
     if (filePath !== ':memory:') {
       throw Error('on-disk DBs with WAL mode enabled do not serialize well');
     }
-    return db.serialize();
+    // `VACUUM INTO` (the synchronous backup primitive we use under
+    // `node:sqlite`) refuses to run inside an open transaction, but
+    // swing-store callers expect to be able to snapshot a live DB that
+    // has uncommitted changes. Briefly commit and re-open the transaction
+    // around the vacuum so the snapshot captures all the work the test
+    // has driven so far. This matches the historical better-sqlite3
+    // `serialize()` semantics for the broad set of callers across the
+    // monorepo.
+    const wasInTransaction = db.isTransaction;
+    if (wasInTransaction) {
+      sqlCommit.run();
+    }
+    const tmpDir = fs.mkdtempSync(
+      pathlib.join(os.tmpdir(), 'swing-store-serialize-'),
+    );
+    const tmpPath = pathlib.join(tmpDir, 'snapshot.sqlite');
+    try {
+      vacuumIntoSync(db, tmpPath);
+      return fs.readFileSync(tmpPath);
+    } finally {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch (_err) {
+        // Best-effort cleanup.
+      }
+      if (wasInTransaction) {
+        sqlBeginTransaction.run();
+      }
+    }
+  }
+
+  /**
+   * Back up the database to a destination file using the native
+   * `node:sqlite` `sqlite.backup` API. Per mhofman's review on
+   * Agoric/agoric-sdk#12198, this is the preferred path for tests that need
+   * a clone of the live DB state.
+   *
+   * @param {string} destPath  Filesystem path to write the backup to.
+   * @returns {Promise<number>}  Number of pages copied (from the native API).
+   */
+  async function backupTo(destPath) {
+    return backupDatabase(db, destPath);
   }
 
   function dumpKVEntries() {
@@ -621,6 +701,7 @@ export function makeSwingStore(path, forceReset, options = {}) {
   };
   const debug = {
     serialize,
+    backupTo,
     dump,
     getDatabase,
   };

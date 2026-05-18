@@ -1,10 +1,11 @@
 // @ts-check
 import test from 'ava';
+import path from 'node:path';
 import { Buffer } from 'node:buffer';
 import tmp from 'tmp';
 import { makeTempDirFactory } from '@agoric/internal/src/tmpDir.js';
 import { createSHA256 } from '../src/hasher.js';
-import { initSwingStore } from '../src/swingStore.js';
+import { initSwingStore, openSwingStore } from '../src/swingStore.js';
 import { makeSwingStoreExporter } from '../src/exporter.js';
 import { importSwingStore } from '../src/importer.js';
 import { buffer } from '../src/util.js';
@@ -117,11 +118,16 @@ test('b0 import', async t => {
     },
     close: async () => undefined,
   };
+  const [scratchDir, cleanupScratch] = tmpDir('bundles-backup');
+  t.teardown(cleanupScratch);
   const ss = await importSwingStore(exporter);
   t.teardown(ss.hostStorage.close);
   await ss.hostStorage.commit();
-  const serialized = ss.debug.serialize();
-  const { kernelStorage } = initSwingStore(null, { serialized });
+  // Per mhofman's review on Agoric/agoric-sdk#12198, DB-serialization tests
+  // use the native backup API rather than the legacy
+  // `serialize()`/`{ serialized }` round-trip.
+  await ss.debug.backupTo(path.join(scratchDir, 'swingstore.sqlite'));
+  const { kernelStorage } = openSwingStore(scratchDir);
   const { bundleStore } = kernelStorage;
   t.truthy(bundleStore.hasBundle(idA));
   t.deepEqual(bundleStore.getBundle(idA), b0A);

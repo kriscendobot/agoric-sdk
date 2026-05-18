@@ -1,8 +1,7 @@
-import sqlite3 from 'better-sqlite3';
-
 import { Fail, q } from '@endo/errors';
 
 import { dbFileInDirectory, getKVStoreKeyType } from './util.js';
+import { makeDatabase } from './sqliteBackend.js';
 import { makeBundleStore } from './bundleStore.js';
 import { makeSnapStore } from './snapStore.js';
 import { makeSnapStoreIO } from './snapStoreIO.js';
@@ -96,7 +95,7 @@ export function makeSwingStoreExporter(dirPath, options = {}) {
   validateArtifactMode(artifactMode);
 
   const filePath = dbFileInDirectory(dirPath);
-  const db = sqlite3(filePath);
+  const db = makeDatabase(filePath);
 
   // Execute the data export in a (read) transaction, to ensure that we are
   // capturing the state of the database at a single point in time. Our close()
