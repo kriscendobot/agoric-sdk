@@ -106,6 +106,9 @@
     "@photostructure/sqlite@1.2.1": {
       "built": true
     },
+    "better-sqlite3@10.1.0": {
+      "built": true
+    },
     "dprint@0.53.0": {
       "built": true
     },

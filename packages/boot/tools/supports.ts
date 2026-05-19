@@ -1646,9 +1646,12 @@ export const makeSwingsetTestKit = async <
     makeStorageSnapshot,
     makeSnapshot,
     forkFromSnapshot: async (
-      forkingSnapshot: SwingsetTestKitSnapshot = await makeSnapshot(),
-    ) =>
-      makeSwingsetTestKit(log, bundleDir, {
+      forkingSnapshot?: SwingsetTestKitSnapshot,
+    ) => {
+      if (forkingSnapshot === undefined) {
+        forkingSnapshot = await makeSnapshot();
+      }
+      return makeSwingsetTestKit(log, bundleDir, {
         configSpecifier,
         label,
         verbose,
@@ -1660,7 +1663,8 @@ export const makeSwingsetTestKit = async <
         resolveBase,
         configOverrides,
         snapshot: forkingSnapshot,
-      }),
+      });
+    },
     storage,
     swingStore,
     timer,
