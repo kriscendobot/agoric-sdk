@@ -87,9 +87,7 @@ function shapeRow(row, pluck, raw) {
     if (typeof row !== 'object') return shapeValue(row);
     const keys = Object.keys(/** @type {object} */ (row));
     if (keys.length === 0) return undefined;
-    return shapeValue(
-      /** @type {Record<string, unknown>} */ (row)[keys[0]],
-    );
+    return shapeValue(/** @type {Record<string, unknown>} */ (row)[keys[0]]);
   }
   if (raw) {
     if (typeof row !== 'object') return [shapeValue(row)];
