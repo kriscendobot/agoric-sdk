@@ -5,10 +5,10 @@ import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import sqlite3 from 'better-sqlite3';
 import tmp from 'tmp';
 
 import { makeMeasureSeconds, makeTempDirFactory } from '@agoric/internal';
+import { createDatabase } from '../src/dbBackend.js';
 import { makeSnapStore } from '../src/snapStore.js';
 import { makeArchiveSnapshot } from '../src/archiver.js';
 
@@ -35,7 +35,7 @@ async function* getSnapshotStream(payload) {
 harden(getSnapshotStream);
 
 test('compress to cache file; closes snapshot stream', async t => {
-  const db = sqlite3(':memory:');
+  const db = createDatabase(':memory:');
   const exportLog = makeExportLog();
   const [archiveDir, cleanupArchives] = tmpDir('archives');
   t.teardown(cleanupArchives);
@@ -93,8 +93,7 @@ test('compress to cache file; closes snapshot stream', async t => {
   sqlGetSnapshot.pluck(true);
   const snapshotGZ = sqlGetSnapshot.get(hash);
   t.truthy(snapshotGZ);
-  // @ts-expect-error unknown
-  const contents = zlib.gunzipSync(snapshotGZ);
+  const contents = zlib.gunzipSync(/** @type {Uint8Array} */ (snapshotGZ));
   t.is(contents.toString(), 'abc', 'gunzip(contents) matches original');
   const logInfo = { vatID: 'fakeVatID', ...exportInfo };
   t.deepEqual(exportLog.getLog(), [
@@ -127,7 +126,7 @@ test('snapStore prepare / commit delete is robust', async t => {
   const io = {
     measureSeconds: makeMeasureSeconds(() => 0),
   };
-  const db = sqlite3(':memory:');
+  const db = createDatabase(':memory:');
   const [archiveDir, cleanupArchives] = tmpDir('archives');
   t.teardown(cleanupArchives);
   const fsPowers = { fs, path, tmp };

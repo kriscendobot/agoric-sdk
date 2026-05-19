@@ -5,13 +5,13 @@ import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { Buffer } from 'node:buffer';
 
-import sqlite3 from 'better-sqlite3';
 import test from 'ava';
 import tmp from 'tmp';
 import { decodeBase64 } from '@endo/base64';
 
 import { makeTempDirFactory } from '@agoric/internal/src/tmpDir.js';
 
+import { createDatabase } from '../src/dbBackend.js';
 import { buffer } from '../src/util.js';
 import { importSwingStore, makeSwingStoreExporter } from '../src/index.js';
 
@@ -155,12 +155,11 @@ const importTest = test.macro(async (t, mode) => {
   t.deepEqual(data.bundles, { [bundle0ID]: bundle0 });
 
   // look directly at the DB to confirm presence of metadata rows
-  const db = sqlite3(path.join(dbDir, 'swingstore.sqlite'));
+  const db = createDatabase(path.join(dbDir, 'swingstore.sqlite'));
   const spanRows = [
     ...db.prepare('SELECT * FROM transcriptSpans ORDER BY startPos').iterate(),
   ];
   t.deepEqual(
-    // @ts-expect-error unknown
     spanRows.map(sr => sr.startPos),
     [0, 2, 5, 8],
   );

@@ -1619,9 +1619,9 @@ export const makeSwingsetTestKit = async <
     });
   };
 
-  const makeSnapshot = (): SwingsetTestKitSnapshot => {
+  const makeSnapshot = async (): Promise<SwingsetTestKitSnapshot> => {
     return {
-      swingStoreSerialized: swingStore.debug.serialize(),
+      swingStoreSerialized: await swingStore.debug.serialize(),
       kernelBundle: snapshot?.kernelBundle,
       storageSnapshot: snapshotFakeStorage(storage),
     };
@@ -1645,10 +1645,11 @@ export const makeSwingsetTestKit = async <
     shutdown,
     makeStorageSnapshot,
     makeSnapshot,
-    forkFromSnapshot: async (
-      forkingSnapshot: SwingsetTestKitSnapshot = makeSnapshot(),
-    ) =>
-      makeSwingsetTestKit(log, bundleDir, {
+    forkFromSnapshot: async (forkingSnapshot?: SwingsetTestKitSnapshot) => {
+      if (forkingSnapshot === undefined) {
+        forkingSnapshot = await makeSnapshot();
+      }
+      return makeSwingsetTestKit(log, bundleDir, {
         configSpecifier,
         label,
         verbose,
@@ -1660,7 +1661,8 @@ export const makeSwingsetTestKit = async <
         resolveBase,
         configOverrides,
         snapshot: forkingSnapshot,
-      }),
+      });
+    },
     storage,
     swingStore,
     timer,

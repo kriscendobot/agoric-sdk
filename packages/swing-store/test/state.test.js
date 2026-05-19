@@ -100,11 +100,11 @@ function testKVStore(t, storage, exportLog) {
   ]);
 }
 
-test('in-memory kvStore read/write', t => {
+test('in-memory kvStore read/write', async t => {
   const exportLog = makeExportLog();
   const ss1 = initSwingStore(null, { exportCallback: exportLog.callback });
   testKVStore(t, ss1, exportLog);
-  const serialized = ss1.debug.serialize();
+  const serialized = await ss1.debug.serialize();
   const ss2 = initSwingStore(null, { serialized });
   checkKVState(t, ss2);
 });

@@ -120,7 +120,7 @@ test('b0 import', async t => {
   const ss = await importSwingStore(exporter);
   t.teardown(ss.hostStorage.close);
   await ss.hostStorage.commit();
-  const serialized = ss.debug.serialize();
+  const serialized = await ss.debug.serialize();
   const { kernelStorage } = initSwingStore(null, { serialized });
   const { bundleStore } = kernelStorage;
   t.truthy(bundleStore.hasBundle(idA));

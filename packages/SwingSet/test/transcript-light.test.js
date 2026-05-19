@@ -15,7 +15,7 @@ test('transcript-light load', async t => {
   const { kernelStorage, debug } = initSwingStore();
   const c = await buildVatController(config, ['one'], { kernelStorage });
   t.teardown(c.shutdown);
-  const serialized0 = debug.serialize();
+  const serialized0 = await debug.serialize();
   const kvstate0 = debug.dump().kvEntries;
   t.is(kvstate0.version, '3');
   t.is(kvstate0.runQueue, '[1,1]');
@@ -23,11 +23,11 @@ test('transcript-light load', async t => {
 
   await c.step();
   const state1 = debug.dump();
-  const serialized1 = debug.serialize();
+  const serialized1 = await debug.serialize();
 
   await c.step();
   const state2 = debug.dump();
-  const serialized2 = debug.serialize();
+  const serialized2 = await debug.serialize();
 
   await c.step();
   const state3 = debug.dump();
