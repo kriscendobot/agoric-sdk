@@ -1645,9 +1645,7 @@ export const makeSwingsetTestKit = async <
     shutdown,
     makeStorageSnapshot,
     makeSnapshot,
-    forkFromSnapshot: async (
-      forkingSnapshot?: SwingsetTestKitSnapshot,
-    ) => {
+    forkFromSnapshot: async (forkingSnapshot?: SwingsetTestKitSnapshot) => {
       if (forkingSnapshot === undefined) {
         forkingSnapshot = await makeSnapshot();
       }

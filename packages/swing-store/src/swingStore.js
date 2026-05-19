@@ -606,7 +606,9 @@ export function makeSwingStore(path, forceReset, options = {}) {
     if (wasInTransaction) {
       sqlCommit.run();
     }
-    const dir = fs.mkdtempSync(pathlib.join(os.tmpdir(), 'swing-store-backup-'));
+    const dir = fs.mkdtempSync(
+      pathlib.join(os.tmpdir(), 'swing-store-backup-'),
+    );
     const destPath = pathlib.join(dir, 'snapshot.sqlite');
     await null;
     try {
