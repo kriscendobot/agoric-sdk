@@ -5,7 +5,6 @@ import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { Buffer } from 'node:buffer';
 
-import sqlite3 from 'better-sqlite3';
 import test from 'ava';
 import tmp from 'tmp';
 import { decodeBase64 } from '@endo/base64';
@@ -14,6 +13,7 @@ import { makeTempDirFactory } from '@agoric/internal/src/tmpDir.js';
 
 import { buffer } from '../src/util.js';
 import { importSwingStore, makeSwingStoreExporter } from '../src/index.js';
+import { makeDatabase as sqlite3 } from '../src/sqliteBackend.js';
 
 import {
   buildData,

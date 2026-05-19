@@ -5,7 +5,6 @@ import { Buffer } from 'node:buffer';
 import path from 'node:path';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
-import sqlite3 from 'better-sqlite3';
 import tmp from 'tmp';
 import { makeTempDirFactory } from '@agoric/internal/src/tmpDir.js';
 import { arrayIsLike } from '@agoric/internal/tools/ava-assertions.js';
@@ -13,6 +12,7 @@ import { initSwingStore } from '../src/swingStore.js';
 import { makeArchiveSnapshot, makeArchiveTranscript } from '../src/archiver.js';
 import { makeSwingStoreExporter } from '../src/exporter.js';
 import { importSwingStore } from '../src/importer.js';
+import { makeDatabase as sqlite3 } from '../src/sqliteBackend.js';
 
 /**
  * @import {ExecutionContext} from 'ava';

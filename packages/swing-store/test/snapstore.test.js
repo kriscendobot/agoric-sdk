@@ -5,12 +5,12 @@ import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import sqlite3 from 'better-sqlite3';
 import tmp from 'tmp';
 
 import { makeMeasureSeconds, makeTempDirFactory } from '@agoric/internal';
 import { makeSnapStore } from '../src/snapStore.js';
 import { makeArchiveSnapshot } from '../src/archiver.js';
+import { makeDatabase as sqlite3 } from '../src/sqliteBackend.js';
 
 const tmpDir = makeTempDirFactory(tmp);
 

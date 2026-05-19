@@ -2,12 +2,12 @@
 
 import path from 'node:path';
 import test from 'ava';
-import sqlite3 from 'better-sqlite3';
 import tmp from 'tmp';
 
 import { makeTempDirFactory } from '@agoric/internal/src/tmpDir.js';
 
 import { importSwingStore, openSwingStore } from '../src/index.js';
+import { makeDatabase as sqlite3 } from '../src/sqliteBackend.js';
 
 import { makeExporter, buildData } from './exports.js';
 

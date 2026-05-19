@@ -1,11 +1,11 @@
 // @ts-check
 import test from 'ava';
 
-import sqlite3 from 'better-sqlite3';
 import { makePromiseKit } from '@endo/promise-kit';
 import { makeQueue } from '@endo/stream';
 
 import { makeTranscriptStore } from '../src/transcriptStore.js';
+import { makeDatabase as sqlite3 } from '../src/sqliteBackend.js';
 
 /**
  * @import {AsyncQueue} from '@endo/stream';
