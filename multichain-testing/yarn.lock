@@ -495,7 +495,7 @@ __metadata:
     "@endo/check-bundle": "npm:^1.0.17"
     "@endo/errors": "npm:^1.2.13"
     "@endo/nat": "npm:^5.1.3"
-    better-sqlite3: "npm:^10.1.0"
+    "@photostructure/sqlite": "npm:^1.2.1"
   languageName: node
   linkType: soft
 
@@ -2019,6 +2019,18 @@ __metadata:
   dependencies:
     semver: "npm:^7.3.5"
   checksum: 10c0/c90935d5ce670c87b6b14fab04a965a3b8137e585f8b2a6257263bd7f97756dd736cb165bb470e5156a9e718ecd99413dccc54b1138c1a46d6ec7cf325982fe5
+  languageName: node
+  linkType: hard
+
+"@photostructure/sqlite@npm:^1.2.1":
+  version: 1.2.1
+  resolution: "@photostructure/sqlite@npm:1.2.1"
+  dependencies:
+    node-addon-api: "npm:^8.7.0"
+    node-gyp: "npm:latest"
+    node-gyp-build: "npm:^4.8.4"
+  checksum: 10c0/34becfaccae5ab1e15d241c2bbf60c3b016a73697cd243e57d41353154f1e3b7bee18c66fb12131f883b565fc327e226fbd0cca9ee403835164172d91a467569
+  conditions: (os=darwin | os=linux | os=win32) & (cpu=x64 | cpu=arm64)
   languageName: node
   linkType: hard
 
@@ -4739,6 +4751,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"node-addon-api@npm:^8.7.0":
+  version: 8.7.0
+  resolution: "node-addon-api@npm:8.7.0"
+  dependencies:
+    node-gyp: "npm:latest"
+  checksum: 10c0/31a03b00f6b0753ab08360952fdf80a1abb619dcf8125fa1ab07e3a414da050963440c3a86c77a0334c0be7a71acb5e242dc468b79201ee6151c7b943afe946d
+  languageName: node
+  linkType: hard
+
 "node-fetch@npm:2.7.0":
   version: 2.7.0
   resolution: "node-fetch@npm:2.7.0"
@@ -4767,7 +4788,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-gyp-build@npm:^4.2.2, node-gyp-build@npm:^4.4.0":
+"node-gyp-build@npm:^4.2.2, node-gyp-build@npm:^4.4.0, node-gyp-build@npm:^4.8.4":
   version: 4.8.4
   resolution: "node-gyp-build@npm:4.8.4"
   bin:
