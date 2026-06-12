@@ -59,9 +59,9 @@
     "@endo/exo": "^1.6.0",
     "@endo/far": "^1.1.14",
     "@endo/import-bundle": "^1.6.0",
-    "@endo/marshal": "^1.9.0",
+    "@endo/marshal": "^1.10.0",
     "@endo/nat": "^5.2.0",
-    "@endo/pass-style": "^1.7.0",
+    "@endo/pass-style": "^1.8.1",
     "@endo/patterns": "^1.8.0",
     "@endo/promise-kit": "^1.2.0",
     "yargs-parser": "^21.1.1"

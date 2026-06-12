@@ -47,8 +47,8 @@
     "@endo/eventual-send": "^1.4.0",
     "@endo/far": "^1.1.14",
     "@endo/init": "^1.1.13",
-    "@endo/marshal": "^1.9.0",
-    "@endo/pass-style": "^1.7.0",
+    "@endo/marshal": "^1.10.0",
+    "@endo/pass-style": "^1.8.1",
     "@endo/patterns": "^1.8.0",
     "commander": "^12.1.0",
     "ethers": "^6.13.4"

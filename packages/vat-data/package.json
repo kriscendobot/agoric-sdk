@@ -28,7 +28,7 @@
   "devDependencies": {
     "@endo/far": "^1.1.14",
     "@endo/init": "^1.1.13",
-    "@endo/ses-ava": "^1.4.0",
+    "@endo/ses-ava": "^1.4.2",
     "ava": "^7.0.0",
     "tsd": "^0.33.0"
   },

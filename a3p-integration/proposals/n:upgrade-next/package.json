@@ -23,7 +23,7 @@
     "@endo/bundle-source": "^4.1.2",
     "@endo/errors": "^1.2.13",
     "@endo/init": "^1.1.12",
-    "@endo/marshal": "^1.8.0",
+    "@endo/marshal": "^1.10.0",
     "agoric": "dev",
     "ava": "^6.4.1",
     "execa": "9.1.0",
