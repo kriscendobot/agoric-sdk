@@ -53,6 +53,7 @@ harden(prepareSwingsetVowTools);
  * Reexport as prepareVowTools, since that's the thing that people find easiest
  * to reach.
  */
+// eslint-disable-next-line @endo/no-multi-name-local-export -- friendly alias
 export { prepareSwingsetVowTools as prepareVowTools };
 
 /**
