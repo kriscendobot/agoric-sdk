@@ -31,7 +31,7 @@ import { type AgoricNamesRemotes } from '@agoric/vats/tools/board-utils.js';
 import type { Instance, InvitationDetails } from '@agoric/zoe';
 import type { Marshal } from '@endo/marshal';
 import type { ERef } from '@agoric/vow';
-import type { BankManager } from '@agoric/vats/src/vat-bank.js';
+import type { Bank, BankManager } from '@agoric/vats/src/vat-bank.js';
 import type { SwingsetTestKit } from './supports.js';
 
 type Marshaller = Omit<Marshal<string | null>, 'serialize' | 'unserialize'>;
@@ -170,10 +170,10 @@ export const makeWalletFactoryDriver = async (
       walletAddress: string,
       myMarshaller?: Marshaller,
     ): Promise<ReturnType<typeof makeWalletDriver>> {
-      const bank = await profileBootStep(
+      const bank = (await profileBootStep(
         `walletFactoryDriver.getBankForAddress.${walletAddress}`,
         () => EV(bankManager).getBankForAddress(walletAddress),
-      );
+      )) as ERef<Bank>;
       return profileBootStep(
         `walletFactoryDriver.provideSmartWallet.${walletAddress}`,
         () =>

@@ -108,7 +108,6 @@ const makeBootstrap = async t => {
           produce.chainTimerService.resolve(v);
           break;
         case 'storage':
-          // @ts-expect-error one of these things is not like the others :)
           produce.chainStorage.resolve(v.rootNode);
           break;
         default:

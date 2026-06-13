@@ -115,7 +115,7 @@ test('localchain - deposit and withdraw', async t => {
 
   const boot = async () => {
     const { bankManager } = await t.context;
-    await E(bankManager).addAsset(
+    await /** @type {any} */ (E(bankManager)).addAsset(
       'ubld',
       'BLD',
       'Staking Token',

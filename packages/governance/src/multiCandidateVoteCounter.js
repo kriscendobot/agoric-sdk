@@ -23,7 +23,7 @@ import { breakTie } from './breakTie.js';
  * @import {MapStore} from '@agoric/swingset-liveslots';
  * @import {Publisher} from '@agoric/notifier';
  * @import {ContractMeta, Installation, Instance, Invitation, ZCF} from '@agoric/zoe';
- * @import {QuestionSpec, BuildMultiVoteCounter, MultiOutcomeRecord, Position, VoteStatistics} from './types.js';
+ * @import {QuestionSpec, BuildMultiVoteCounter, MultiOutcomeRecord, MultiVoteCounterFacets, Position, VoteStatistics} from './types.js';
  * @import {PromiseRecord} from '@endo/promise-kit';
  */
 
@@ -198,12 +198,13 @@ const makeMultiCandidateVoteCounter = (
     },
   );
 
-  // @ts-expect-error stricter @endo/exo makeExo overload signatures surface
-  // a Guard-vs-concrete-methods mismatch at the publicFacet boundary.
+  // Stricter @endo/exo makeExo overload signatures surface a
+  // Guard-vs-concrete-methods mismatch at the publicFacet boundary; the
+  // runtime interface guard still enforces the JSDoc shape.
   const publicFacet = makeExo(
     'MultiCandidateVoteCounter public',
     VoteCounterPublicI,
-    {
+    /** @type {any} */ ({
       getQuestion() {
         return question;
       },
@@ -222,16 +223,20 @@ const makeMultiCandidateVoteCounter = (
       getInstance() {
         return instance;
       },
-    },
+    }),
   );
 
-  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-  // MultiVoteCounterFacets type; runtime facets satisfy the interface.
-  return harden({
-    creatorFacet,
-    publicFacet,
-    closeFacet,
-  });
+  // Stricter @endo/exo Guarded inference vs the declared MultiVoteCounterFacets
+  // type; runtime facets satisfy the interface.
+  return /** @type {MultiVoteCounterFacets} */ (
+    /** @type {unknown} */ (
+      harden({
+        creatorFacet,
+        publicFacet,
+        closeFacet,
+      })
+    )
+  );
 };
 
 /**

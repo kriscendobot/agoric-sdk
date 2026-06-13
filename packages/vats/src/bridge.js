@@ -218,9 +218,9 @@ export const prepareBridgeManager = (zone, D) => {
       // Safe now to add the kit.
       bridgeToManagerKit.init(bridgeDevice, kit);
     }
-    // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-    // BridgeManager return type; runtime guard enforces interface shape.
-    return kit.manager;
+    // Stricter @endo/exo Guarded inference vs the declared BridgeManager
+    // return type; runtime guard enforces interface shape.
+    return /** @type {any} */ (kit.manager);
   };
 
   // Register all the handlers with their bridge devices.  This is necessary

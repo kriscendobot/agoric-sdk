@@ -22,7 +22,7 @@ import { makeQuorumCounter } from './quorumCounter.js';
  * @import {MapStore} from '@agoric/swingset-liveslots';
  * @import {Publisher} from '@agoric/notifier';
  * @import {ZCF} from '@agoric/zoe';
- * @import {BuildVoteCounter, OutcomeRecord, Position, QuestionSpec, VoteStatistics} from './types.js';
+ * @import {BuildVoteCounter, OutcomeRecord, Position, QuestionSpec, VoteCounterFacets, VoteStatistics} from './types.js';
  * @import {PromiseRecord} from '@endo/promise-kit';
  */
 
@@ -179,12 +179,13 @@ const makeBinaryVoteCounter = (
     },
   );
 
-  // @ts-expect-error stricter @endo/exo makeExo overload signatures surface
-  // a Guard-vs-concrete-methods mismatch at the publicFacet boundary.
+  // Stricter @endo/exo makeExo overload signatures surface a
+  // Guard-vs-concrete-methods mismatch at the publicFacet boundary; the
+  // runtime interface guard still enforces the JSDoc shape.
   const publicFacet = makeExo(
     'BinaryVoteCounter public',
     BinaryVoteCounterPublicI,
-    {
+    /** @type {any} */ ({
       getQuestion() {
         return question;
       },
@@ -203,16 +204,20 @@ const makeBinaryVoteCounter = (
       getInstance() {
         return instance;
       },
-    },
+    }),
   );
 
-  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-  // VoteCounterFacets type; the runtime facets satisfy the interface.
-  return harden({
-    creatorFacet,
-    publicFacet,
-    closeFacet,
-  });
+  // Stricter @endo/exo Guarded inference vs the declared VoteCounterFacets
+  // type; the runtime facets satisfy the interface.
+  return /** @type {VoteCounterFacets} */ (
+    /** @type {unknown} */ (
+      harden({
+        creatorFacet,
+        publicFacet,
+        closeFacet,
+      })
+    )
+  );
 };
 
 // The contract wrapper extracts the terms and runs makeBinaryVoteCounter().

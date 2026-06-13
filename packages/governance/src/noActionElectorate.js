@@ -65,9 +65,11 @@ const start = zcf => {
     },
   });
 
-  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-  // ElectorateCreatorFacet type; runtime exo satisfies the interface.
-  return { publicFacet, creatorFacet };
+  // Stricter @endo/exo Guarded inference vs the declared ElectorateCreatorFacet
+  // type; runtime exo satisfies the interface.
+  return /** @type {{ publicFacet: ElectoratePublic, creatorFacet: ElectorateCreatorFacet }} */ (
+    /** @type {unknown} */ ({ publicFacet, creatorFacet })
+  );
 };
 
 harden(start);

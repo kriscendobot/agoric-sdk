@@ -197,16 +197,17 @@ const prepareRewardPurseController = zone =>
     },
   );
 
+// Stricter @endo/exo exoClass overload signatures surface a
+// Guard-vs-concrete-methods mismatch at BankChannelHandler boundary; the
+// runtime interface guard still enforces the declared shape.
 /** @param {Zone} zone */
 const prepareBankChannelHandler = zone =>
-  // @ts-expect-error stricter @endo/exo exoClass overload signatures surface
-  // a Guard-vs-concrete-methods mismatch at BankChannelHandler boundary.
   zone.exoClass(
     'BankChannelHandler',
     BridgeHandlerI,
     /** @param {MapStore<string, MapStore<string, BalanceUpdater>>} denomToAddressUpdater */
     denomToAddressUpdater => ({ denomToAddressUpdater }),
-    {
+    /** @type {any} */ ({
       /** @param {BridgeMessage} obj */
       async fromBridge(obj) {
         switch (obj?.type) {
@@ -243,7 +244,7 @@ const prepareBankChannelHandler = zone =>
           }
         }
       },
-    },
+    }),
   );
 
 /**
@@ -598,8 +599,9 @@ const prepareBankManager = (
 ) => {
   const detachedZone = zone.detached();
 
-  // @ts-expect-error stricter @endo/exo exoClass overload signatures surface
-  // a Guard-vs-concrete-methods mismatch at BankManager boundary.
+  // Stricter @endo/exo exoClass overload signatures surface a
+  // Guard-vs-concrete-methods mismatch at BankManager boundary; the runtime
+  // interface guard still enforces the declared shape.
   const makeBankManager = zone.exoClass(
     'BankManager',
     BankManagerI,
@@ -645,7 +647,7 @@ const prepareBankManager = (
         nameAdmin,
       };
     },
-    {
+    /** @type {any} */ ({
       /**
        * Returns assets as they are added to the bank.
        *
@@ -817,7 +819,7 @@ const prepareBankManager = (
         addressToBank.init(address, harden({ bank, brandToVPurse }));
         return bank;
       },
-    },
+    }),
   );
   return makeBankManager;
 };

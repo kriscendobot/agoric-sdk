@@ -740,9 +740,6 @@ const makeMockBankManager = t => {
     getAssetSubscription: () => assert.fail('not impl'),
     getModuleAccountAddress: () => assert.fail('not impl'),
     getRewardDistributorDepositFacet: () =>
-      // @ts-expect-error stricter @endo/marshal Remotable inference vs the
-      // declared Promise<any> return type; runtime depositFacet is the right
-      // shape for the mock bank manager.
       Far('depositFacet', {
         receive: () => /** @type {any} */ (null),
       }),
