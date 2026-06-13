@@ -159,6 +159,8 @@ const makeBinaryVoteCounter = (
       submitVote(voterHandle, chosenPositions, shares = 1n) {
         assert(chosenPositions.length === 1, 'only 1 position allowed');
         const [position] = chosenPositions;
+        // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
+        // a Position union-vs-concrete mismatch at positionIncluded.
         positionIncluded(positions, position) ||
           Fail`The specified choice is not a legal position: ${position}.`;
 
@@ -166,13 +168,19 @@ const makeBinaryVoteCounter = (
         // to make sure that each voter's vote is recorded only once.
         const completedBallot = harden({ chosen: position, shares });
         allBallots.has(voterHandle)
-          ? allBallots.set(voterHandle, completedBallot)
-          : allBallots.init(voterHandle, completedBallot);
+          ? // @ts-expect-error stricter @endo/marshal RecordedBallot narrowing
+            // vs the union returned by harden(...).
+            allBallots.set(voterHandle, completedBallot)
+          : // @ts-expect-error stricter @endo/marshal RecordedBallot narrowing
+            // vs the union returned by harden(...).
+            allBallots.init(voterHandle, completedBallot);
         return completedBallot;
       },
     },
   );
 
+  // @ts-expect-error stricter @endo/exo makeExo overload signatures surface
+  // a Guard-vs-concrete-methods mismatch at the publicFacet boundary.
   const publicFacet = makeExo(
     'BinaryVoteCounter public',
     BinaryVoteCounterPublicI,
@@ -198,6 +206,8 @@ const makeBinaryVoteCounter = (
     },
   );
 
+  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
+  // VoteCounterFacets type; the runtime facets satisfy the interface.
   return harden({
     creatorFacet,
     publicFacet,

@@ -376,6 +376,8 @@ export const preparePaymentLedger = (
       return issuer;
     },
     mintPayment(newAmount) {
+      // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
+      // an Amount vs Amount<K, Key> covariance mismatch at coerce(...).
       newAmount = coerce(newAmount);
       mustMatch(newAmount, amountShape, 'minted amount');
       // `rawPayment` is not associated with any recovery set, and

@@ -87,19 +87,24 @@ const coerceQuestionSpec = ({
 const buildQuestion = (questionSpec, counterInstance) => {
   const questionHandle = makeHandle('Question');
 
-  /** @type {Question} */
-  return makeExo('question details', QuestionI, {
-    getVoteCounter() {
-      return counterInstance;
-    },
-    getDetails() {
-      return harden({
-        ...questionSpec,
-        questionHandle,
-        counterInstance,
-      });
-    },
-  });
+  return /** @type {Question} */ (
+    /** @type {unknown} */ (
+      // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
+      // Question type; runtime makeExo satisfies QuestionI's guard.
+      makeExo('question details', QuestionI, {
+        getVoteCounter() {
+          return counterInstance;
+        },
+        getDetails() {
+          return harden({
+            ...questionSpec,
+            questionHandle,
+            counterInstance,
+          });
+        },
+      })
+    )
+  );
 };
 
 harden(buildQuestion);

@@ -234,8 +234,10 @@ export async function initializeKernel(config, kernelStorage, options = {}) {
       // See https://github.com/Agoric/agoric-sdk/issues/2780
       errorIdNum: 60_000,
     });
+    // Cast through unknown: stricter @endo/marshal Passable typing rejects
+    // a direct `{}[]` -> Passable assertion; runtime values are Passable.
     const bootstrapArgs = /** @type {Passable} */ (
-      harden([vatObj0s, deviceObj0s])
+      /** @type {unknown} */ (harden([vatObj0s, deviceObj0s]))
     );
     const args = kunser(m.serialize(bootstrapArgs));
     const rootKref = exportRootObject(kernelKeeper, bootstrapVatID);

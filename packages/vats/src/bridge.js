@@ -218,6 +218,8 @@ export const prepareBridgeManager = (zone, D) => {
       // Safe now to add the kit.
       bridgeToManagerKit.init(bridgeDevice, kit);
     }
+    // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
+    // BridgeManager return type; runtime guard enforces interface shape.
     return kit.manager;
   };
 

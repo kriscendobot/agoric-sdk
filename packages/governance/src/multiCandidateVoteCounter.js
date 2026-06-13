@@ -178,6 +178,8 @@ const makeMultiCandidateVoteCounter = (
           Fail`The number of choices exceeds the max choices.`;
 
         for (const position of chosenPositions) {
+          // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
+          // a Position union-vs-concrete mismatch at positionIncluded.
           positionIncluded(positions, position) ||
             Fail`The specified choice is not a legal position: ${position}.`;
         }
@@ -185,13 +187,19 @@ const makeMultiCandidateVoteCounter = (
         const completedBallot = harden({ chosen: chosenPositions, shares });
 
         allBallots.has(voterHandle)
-          ? allBallots.set(voterHandle, completedBallot)
-          : allBallots.init(voterHandle, completedBallot);
+          ? // @ts-expect-error stricter @endo/marshal RecordedBallot narrowing
+            // vs the union returned by harden(...).
+            allBallots.set(voterHandle, completedBallot)
+          : // @ts-expect-error stricter @endo/marshal RecordedBallot narrowing
+            // vs the union returned by harden(...).
+            allBallots.init(voterHandle, completedBallot);
         return completedBallot;
       },
     },
   );
 
+  // @ts-expect-error stricter @endo/exo makeExo overload signatures surface
+  // a Guard-vs-concrete-methods mismatch at the publicFacet boundary.
   const publicFacet = makeExo(
     'MultiCandidateVoteCounter public',
     VoteCounterPublicI,
@@ -217,6 +225,8 @@ const makeMultiCandidateVoteCounter = (
     },
   );
 
+  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
+  // MultiVoteCounterFacets type; runtime facets satisfy the interface.
   return harden({
     creatorFacet,
     publicFacet,

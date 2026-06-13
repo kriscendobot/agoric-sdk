@@ -134,6 +134,8 @@ const prepareBankPurseController = zone => {
       },
       async pushAmount(amt) {
         const { bankBridge, denom, address, brand } = this.state;
+        // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
+        // a CopySet|CopyBag|Key[] union vs Amount mismatch at getValue.
         const value = AmountMath.getValue(brand, amt);
         const update = await bankBridge.toBridge({
           type: 'VBANK_GIVE',
@@ -145,6 +147,8 @@ const prepareBankPurseController = zone => {
       },
       async pullAmount(amt) {
         const { bankBridge, denom, address, brand } = this.state;
+        // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
+        // a CopySet|CopyBag|Key[] union vs Amount mismatch at getValue.
         const value = AmountMath.getValue(brand, amt);
         const update = await bankBridge.toBridge({
           type: 'VBANK_GRAB',
@@ -181,6 +185,8 @@ const prepareRewardPurseController = zone =>
       },
       async pushAmount(amount) {
         const { brand, bankChannel, denom } = this.state;
+        // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
+        // a CopySet|CopyBag|Key[] union vs Amount mismatch at getValue.
         const value = AmountMath.getValue(brand, amount);
         await bankChannel.toBridge({
           type: 'VBANK_GIVE_TO_REWARD_DISTRIBUTOR',
@@ -193,6 +199,8 @@ const prepareRewardPurseController = zone =>
 
 /** @param {Zone} zone */
 const prepareBankChannelHandler = zone =>
+  // @ts-expect-error stricter @endo/exo exoClass overload signatures surface
+  // a Guard-vs-concrete-methods mismatch at BankChannelHandler boundary.
   zone.exoClass(
     'BankChannelHandler',
     BridgeHandlerI,
@@ -349,6 +357,8 @@ const prepareAssetSubscription = zone => {
         return pubList;
       },
       [Symbol.asyncIterator]() {
+        // @ts-expect-error stricter @endo/exo Guarded inference vs the
+        // declared ERef<EachTopic<any>> parameter; runtime self satisfies.
         return subscribeEach(this.self)[Symbol.asyncIterator]();
       },
     },
@@ -588,6 +598,8 @@ const prepareBankManager = (
 ) => {
   const detachedZone = zone.detached();
 
+  // @ts-expect-error stricter @endo/exo exoClass overload signatures surface
+  // a Guard-vs-concrete-methods mismatch at BankManager boundary.
   const makeBankManager = zone.exoClass(
     'BankManager',
     BankManagerI,
