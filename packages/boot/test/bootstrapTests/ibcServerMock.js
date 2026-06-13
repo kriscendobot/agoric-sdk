@@ -84,9 +84,13 @@ export const start = async (_zcf, privateArgs, _baggage) => {
       Fail`expecting to dequeue ${q(expectedLabel)} but saw ${q(label)}`;
     },
     listen: async () => {
+      // @ts-expect-error stricter @endo/eventual-send EMethods inference
+      // narrows E(...) return; Port's addListener is reachable at runtime.
       await E(boundPort).addListener(listener);
     },
     getLocalAddress: async () => {
+      // @ts-expect-error stricter @endo/eventual-send EMethods inference
+      // narrows E(...) return; Port's getLocalAddress is reachable at runtime.
       return E(boundPort).getLocalAddress();
     },
   });

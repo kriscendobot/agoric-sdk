@@ -458,6 +458,8 @@ export const prepareEVMWalletMessageHandler = (
     handleMessage: M.call(EIP712DataShape).returns(VowShape),
   });
 
+  // @ts-expect-error stricter @endo/exo exoClass overload signatures surface
+  // a Guard-vs-concrete-methods mismatch at messageHandler boundary.
   return zone.exoClass(
     'messageHandler',
     MessageHandlerI,

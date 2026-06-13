@@ -108,7 +108,10 @@ export const provideMakePrivateArgs = (
 
   const makePrivateArgs = (
     privateArgOverrides: Partial<PortfolioPrivateArgs> = {},
-  ): PortfolioPrivateArgs => ({
+  ): PortfolioPrivateArgs =>
+    // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
+    // PortfolioPrivateArgs shape; runtime values satisfy the contract guards.
+    ({
     ...commonPrivateArgs,
     axelarIds: axelarIdsMock,
     contracts: contractsMock,

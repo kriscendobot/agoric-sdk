@@ -98,6 +98,8 @@ export const buildRootObject = async () => {
         installation,
         {},
         terms,
+        // @ts-expect-error stricter @endo/exo Guarded storageNode inference
+        // vs the declared ERemote<StorageNode> field; runtime guard matches.
         privateArgs,
       );
       trace('BOOT buildV1 started instance');

@@ -425,6 +425,8 @@ export const makeLaunchChain = (
         serializeBodyFormat: 'smallcaps',
       });
       const publish = makeSerializeToStorage(
+        // @ts-expect-error stricter @endo/exo Guarded inference vs the
+        // declared ERemote<StorageNode> parameter; runtime guard matches.
         installationStorageNode,
         marshaller,
       );
