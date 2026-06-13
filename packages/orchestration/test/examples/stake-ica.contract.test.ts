@@ -154,7 +154,6 @@ test('delegate, undelegate, redelegate, withdrawReward', async t => {
     validatorAddr,
     {
       ...validatorAddr,
-      // @ts-ignore XXX invalid Bech32; stricter @endo/exo inference now accepts.
       value: 'cosmosvaloper2test',
     },
     { denom: 'uatom', value: 10n },

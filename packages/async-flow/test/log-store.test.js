@@ -35,10 +35,9 @@ const testLogStorePlay = async (t, zone) => {
   t.is(log.getIndex(), 0);
   t.is(log.getLength(), 0);
   t.throws(
-    () =>
-      // @ts-ignore LogStore typedef widened to any to break circular alias;
-      // the runtime exoClass guard still rejects this invalid input.
-      log.pushEntry(['bogus']),
+    // LogStore typedef widened to any to break circular alias; the runtime
+    // exoClass guard still rejects this invalid input.
+    () => log.pushEntry(['bogus']),
     {
       message:
         /^In "pushEntry" method of \(LogStore\): arg 0: \["bogus"\] - Must match one of/,
@@ -56,10 +55,9 @@ const testLogStorePlay = async (t, zone) => {
     ['doFulfill', v1, 'x'],
     ['doReject', v2, 'y'],
   ]);
-  // Because t.deepEqual is too tolerant
-  // @ts-ignore data dependent typing; LogStore widened to any.
+  // Because t.deepEqual is too tolerant. Data-dependent typing; LogStore
+  // widened to any.
   t.is(toPassableCap(log.dump()[0][1]), toPassableCap(v1));
-  // @ts-ignore data dependent typing; LogStore widened to any.
   t.is(toPassableCap(log.dump()[1][1]), toPassableCap(v2));
 
   t.is(log.getIndex(), 2);
@@ -103,10 +101,9 @@ const testLogStoreReplay = async (t, zone) => {
     ['doFulfill', v1, 'x'],
     ['doReject', v2, 'y'],
   ]);
-  // Because t.deepEqual is too tolerant
-  // @ts-ignore data dependent typing; LogStore widened to any.
+  // Because t.deepEqual is too tolerant. Data-dependent typing; LogStore
+  // widened to any.
   t.is(toPassableCap(log.dump()[0][1]), toPassableCap(v1));
-  // @ts-ignore data dependent typing; LogStore widened to any.
   t.is(toPassableCap(log.dump()[1][1]), toPassableCap(v2));
 
   t.deepEqual(log.nextEntry(), ['doFulfill', v1, 'x']);

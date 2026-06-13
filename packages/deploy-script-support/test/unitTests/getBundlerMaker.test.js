@@ -11,11 +11,10 @@ test('getBundlerMaker - already made', async t => {
     t.deepEqual(path, ['scratch', 'bundlerMaker']);
     return 'BUNDLER_MAKER_FOUND';
   };
-  // @ts-ignore omitting args for test; stricter @endo/exo inference accepts.
+  // @ts-expect-error omitting args for test; stricter @endo/exo inference accepts.
   const getBundlerMaker = makeGetBundlerMaker({}, { lookup });
 
   const bundler = await getBundlerMaker({ log: t.log });
-  // @ts-ignore mock lookup result; stricter @endo/exo inference accepts.
   t.is(bundler, 'BUNDLER_MAKER_FOUND');
 });
 

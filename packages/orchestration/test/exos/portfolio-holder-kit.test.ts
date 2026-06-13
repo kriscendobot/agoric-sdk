@@ -98,7 +98,6 @@ test('portfolio holder kit behaviors', async t => {
   t.is(
     delegateInv,
     // note: mocked zcf (we are not in a contract) returns inv description
-    // @ts-ignore stricter @endo/exo inference now accepts string here.
     'Delegate',
     'any invitation maker accessible via Proxying',
   );
@@ -111,7 +110,6 @@ test('portfolio holder kit behaviors', async t => {
   t.is(
     transferInv,
     // note: mocked zcf (we are not in a contract) returns inv description
-    // @ts-ignore stricter @endo/exo inference now accepts string here.
     'Transfer',
     'invitationArgs are optional',
   );

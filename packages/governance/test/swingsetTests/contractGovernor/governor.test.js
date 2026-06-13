@@ -69,7 +69,6 @@ test.before(async t => {
   const ttime = `${(step4 - start) / 1000}s total`;
   console.log(`bundling: ${ktime}, ${ctime}, ${vtime}, ${ttime}`);
 
-  // @ts-ignore stricter @endo/exo inference now accepts this shape.
   t.context.data = { kernelBundles, config };
 });
 
