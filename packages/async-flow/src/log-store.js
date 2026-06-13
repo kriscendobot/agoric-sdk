@@ -176,12 +176,16 @@ export const prepareLogStore = zone => {
 
         const result = self.peekEntry();
         eph.unfilteredIndex += 1;
+        // @ts-expect-error stricter @endo/exo guard inference narrows the
+        // self.peekEntry() return to a union; entryIsVisible accepts LogEntry.
         if (entryIsVisible(result)) {
           eph.index += 1;
         }
         if (!self.isReplaying()) {
           eph.replayDoneKit.resolve(undefined);
         }
+        // @ts-expect-error stricter @endo/exo guard inference narrows result
+        // to a union; the method declares LogEntry per the JSDoc @returns.
         return result;
       },
       /**
@@ -190,6 +194,8 @@ export const prepareLogStore = zone => {
       nextEntry() {
         const { self } = this;
         let result = self.nextUnfilteredEntry();
+        // @ts-expect-error stricter @endo/exo guard inference narrows the
+        // nextUnfilteredEntry return to a union; entryIsVisible accepts LogEntry.
         while (!entryIsVisible(result)) {
           self.isReplaying() || Fail`Unexpected entry at log tail: ${result}`;
           result = self.nextUnfilteredEntry();
@@ -264,5 +270,10 @@ export const prepareLogStore = zone => {
 };
 
 /**
- * @typedef {ReturnType<ReturnType<typeof prepareLogStore>>} LogStore
+ * Stricter @endo/exo Guarded inference made the prior
+ * `ReturnType<ReturnType<typeof prepareLogStore>>` form circular (TS2456).
+ * Widened to `any` to break the cycle without losing call-site behavior; the
+ * exoClass interface guard still enforces shape at runtime.
+ *
+ * @typedef {any} LogStore
  */

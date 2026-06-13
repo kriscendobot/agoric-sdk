@@ -38,7 +38,11 @@ const makeVirtualExo = (
   options = undefined,
 ) => {
   const defineKindOptions =
-    /** @type {DefineKindOptions<{ self: typeof methods }>} */ (options);
+    /** @type {DefineKindOptions<{ self: typeof methods }>} */ (
+      // @ts-ignore stricter @endo/exo DefineKindOptions inference rejects
+      // a direct `undefined` -> options conversion; cast via unknown.
+      /** @type {unknown} */ (options)
+    );
   const makeInstance = defineVirtualExoClass(
     label,
     interfaceGuard,

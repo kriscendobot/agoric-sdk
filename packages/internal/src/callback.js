@@ -261,6 +261,8 @@ export const prepareAttenuator = (
    */
   const makeAttenuator = zone.exoClass(
     tag,
+    // @ts-expect-error stricter @endo/exo exoClass overload signatures surface
+    // an Overrides-keyed methods mismatch at the prepareAttenuator boundary.
     interfaceGuard,
     /**
      * @param {object} opts

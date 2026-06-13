@@ -203,6 +203,8 @@ export const prepareChainStorageNode = zone => {
         const { sequence, path, messenger } = this.state;
         assertPathSegment(name);
         const mergedOptions = { sequence, ...childNodeOptions };
+        // @ts-expect-error stricter @endo/exo Guarded return type vs the
+        // declared StorageNode surface; the runtime guard matches the JSDoc.
         return makeChainStorageNode(
           messenger,
           `${path}.${name}`,
@@ -270,6 +272,8 @@ export function makeChainStorageRoot(
  */
 const makeNullStorageNode = () => {
   // XXX re-use "ChainStorage" methods above which don't actually depend on chains
+  // @ts-expect-error stricter @endo/exo Guarded return type vs the declared
+  // StorageNode surface; runtime interface guard matches the JSDoc @returns.
   return makeChainStorageRoot(
     Far('NullMessenger', () => null),
     'null',

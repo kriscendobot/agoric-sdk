@@ -134,6 +134,8 @@ export const prepareBijection = (
       const guestToHost = g2h.for(self);
       const hostToGuest = h2g.for(self);
 
+      // @ts-expect-error stricter @endo/pass-style Passable typing surfaces
+      // a Passable -> PassableCap|Vow narrowing gap at this unwrap boundary.
       const gUnwrapped = unwrap(h, g);
       !hostToGuest.has(h) ||
         Fail`hostToGuest key already bound: ${h} -> ${hostToGuest.get(h)} vs ${gUnwrapped}`;
@@ -171,6 +173,8 @@ export const prepareBijection = (
       const hostToGuest = h2g.for(self);
 
       if (guestToHost.has(g)) {
+        // @ts-expect-error stricter @endo/pass-style Passable typing surfaces
+        // a Passable -> PassableCap|Vow narrowing gap at toPassableCap.
         toPassableCap(guestToHost.get(g)) === toPassableCap(h) ||
           Fail`internal: g->h ${g} -> ${h} vs ${guestToHost.get(g)}`;
         hostToGuest.get(h) === g ||
@@ -203,5 +207,10 @@ export const prepareBijection = (
 harden(prepareBijection);
 
 /**
- * @typedef {ReturnType<ReturnType<typeof prepareBijection>>} Bijection
+ * Stricter @endo/exo Guarded inference made the prior
+ * `ReturnType<ReturnType<typeof prepareBijection>>` form circular (TS2456).
+ * Widened to `any` to break the cycle without losing call-site behavior; the
+ * exoClass interface guard still enforces shape at runtime.
+ *
+ * @typedef {any} Bijection
  */

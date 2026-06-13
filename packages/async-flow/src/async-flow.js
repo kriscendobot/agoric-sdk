@@ -503,6 +503,8 @@ export const prepareAsyncFlowTools = (outerZone, outerOptions = {}) => {
     return harden(wrapperFunc);
   };
 
+  // @ts-expect-error stricter @endo/exo exoClass overload signatures
+  // surface a Guard-vs-concrete-methods mismatch at this call site.
   const adminAsyncFlow = outerZone.exo('AdminAsyncFlow', AdminAsyncFlowI, {
     getFailures() {
       return failures.snapshot();

@@ -42,6 +42,8 @@ export const prepareRouter = zone => {
 
   const makeRouter = zone.exoClass(
     'Router',
+    // @ts-expect-error stricter @endo/exo exoClass overload signatures surface
+    // a Guard-vs-concrete-methods mismatch at the Router preparation boundary.
     RouterI,
     () => {
       /** @type {MapStore<string, T>} */
@@ -131,6 +133,8 @@ export const prepareRouterProtocol = (zone, powers, E = defaultE) => {
     }),
     () => {
       /** @type {Router<Protocol>} */
+      // @ts-expect-error stricter @endo/exo Guarded return vs declared
+      // Router<Protocol> type; runtime guard enforces the JSDoc shape.
       const router = makeRouter();
 
       /** @type {MapStore<string, Protocol>} */
