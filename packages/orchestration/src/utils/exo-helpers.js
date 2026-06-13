@@ -196,11 +196,15 @@ export const makeVowExoHelpers = ({ watch }) => {
             M.interface(
               name,
               /** @type {{ [T in M[number]]: MethodGuard }} */ (
-                Object.fromEntries(
-                  methods.map(method => [
-                    method,
-                    M.call().rest(M.any()).returns(),
-                  ]),
+                /** @type {unknown} */ (
+                  // Cast through unknown: stricter @endo/exo MethodGuard
+                  // generic surface rejects the entries-shape direct cast.
+                  Object.fromEntries(
+                    methods.map(method => [
+                      method,
+                      M.call().rest(M.any()).returns(),
+                    ]),
+                  )
                 )
               ),
             ),

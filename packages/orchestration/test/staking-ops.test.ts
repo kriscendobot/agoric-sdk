@@ -285,6 +285,8 @@ test('makeAccount() writes to storage', async t => {
     },
     {
       account,
+      // @ts-expect-error stricter @endo/exo Guarded inference vs the
+      // declared Remote<StorageNode> | undefined parameter.
       storageNode,
       icqConnection,
       timer,
@@ -336,6 +338,8 @@ test('withdrawRewards() on StakingAccountHolder formats message correctly', asyn
     },
     {
       account,
+      // @ts-expect-error stricter @endo/exo Guarded inference vs the
+      // declared Remote<StorageNode> | undefined parameter.
       storageNode,
       icqConnection,
       timer,
@@ -382,6 +386,8 @@ test(`delegate; redelegate using invitationMakers`, async t => {
     },
     {
       account,
+      // @ts-expect-error stricter @endo/exo Guarded inference vs the
+      // declared Remote<StorageNode> | undefined parameter.
       storageNode,
       icqConnection,
       timer,
@@ -477,6 +483,8 @@ test(`withdraw rewards using invitationMakers`, async t => {
     },
     {
       account,
+      // @ts-expect-error stricter @endo/exo Guarded inference vs the
+      // declared Remote<StorageNode> | undefined parameter.
       storageNode,
       icqConnection,
       timer,
@@ -527,6 +535,8 @@ test(`undelegate waits for unbonding period`, async t => {
     },
     {
       account,
+      // @ts-expect-error stricter @endo/exo Guarded inference vs the
+      // declared Remote<StorageNode> | undefined parameter.
       storageNode,
       icqConnection,
       timer,
