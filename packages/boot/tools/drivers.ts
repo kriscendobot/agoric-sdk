@@ -170,10 +170,11 @@ export const makeWalletFactoryDriver = async (
       walletAddress: string,
       myMarshaller?: Marshaller,
     ): Promise<ReturnType<typeof makeWalletDriver>> {
-      const bank = (await profileBootStep(
+      const bankResult = await profileBootStep(
         `walletFactoryDriver.getBankForAddress.${walletAddress}`,
         () => EV(bankManager).getBankForAddress(walletAddress),
-      )) as ERef<Bank>;
+      );
+      const bank = bankResult as ERef<Bank>;
       return profileBootStep(
         `walletFactoryDriver.provideSmartWallet.${walletAddress}`,
         () =>
