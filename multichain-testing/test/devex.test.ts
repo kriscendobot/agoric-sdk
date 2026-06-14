@@ -24,7 +24,6 @@ test.before(async t => {
 // ℹ     at assertTxStatusPlain (file:///opt/agoric/agoric-sdk/multichain-testing/test/devex.test.ts:9:7)
 //       at file:///opt/agoric/agoric-sdk/multichain-testing/test/devex.test.ts:31:9
 test.failing('plain', async t => {
-  // @ts-expect-error unknown
   const { assertTxStatusPlain } = t.context;
 
   await assertTxStatusPlain('0x123', 'success');
@@ -37,7 +36,6 @@ test.failing('plain', async t => {
 // ℹ     at Test.saveFirstError (file:///opt/agoric/agoric-sdk/multichain-testing/node_modules/.store/ava-virtual-d28ee69673/package/lib/test.js:410:22)
 //       at Test.failPendingAssertion (file:///opt/agoric/agoric-sdk/multichain-testing/node_modules/.store/ava-virtual-d28ee69673/package/lib/test.js:363:8)
 test.failing('wrapped', async t => {
-  // @ts-expect-error unknown
   const { assertTxStatusWrapped } = t.context;
 
   await assertTxStatusWrapped('0x123', 'success');
