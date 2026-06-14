@@ -60,17 +60,30 @@ export const parseGraphqlEndpoints = (
  * Treat a source object as a one-to-one dictionary, returning the value
  * associated with the provided key or throwing an error if there is no such own
  * property.
+ *
+ * Overloaded so that callers with a statically known key (`K`) keep
+ * compile-time safety against typos, while callers that only have a `string`
+ * can still look up dynamically (at the cost of deferring the bad-key check
+ * to runtime).
  */
-export const lookupValueForKey = <K extends string, V>(
+export function lookupValueForKey<K extends string, V>(
+  source: Partial<Record<K, V>>,
+  key: K,
+): V;
+export function lookupValueForKey<K extends string, V>(
   source: Partial<Record<K, V>>,
   key: string,
-): V => {
+): V;
+export function lookupValueForKey<K extends string, V>(
+  source: Partial<Record<K, V>>,
+  key: string,
+): V {
   const value = getOwn(source, key);
   if (value === undefined && !hasOwn(source, key)) {
     throw Error(`no value for key: ${key}`);
   }
   return value as V;
-};
+}
 
 /**
  * Treat a source object as a one-to-one dictionary, returning the key
