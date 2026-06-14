@@ -8,10 +8,8 @@ import {
 import { unsafeSharedBundleCache } from './bundleTool.js';
 
 /**
- * @import {SwingSetConfig} from '../src/types-external.js';
- * @import {SwingStoreKernelStorage} from '../src/types-external.js';
- * @import {InitializationOptions} from '../src/controller/initializeSwingset.js';
- * @import {InitializeSwingsetRuntimeOptions} from '../src/controller/initializeSwingset.js';
+ * @import {EndoZipBase64Bundle, SwingSetConfig, SwingStoreKernelStorage} from '../src/types-external.js';
+ * @import {InitializationOptions, InitializeSwingsetRuntimeOptions} from '../src/controller/initializeSwingset.js';
  */
 
 const readBundleSpecFile = makeReadJsonFile(fs.promises);
@@ -42,7 +40,7 @@ export const initializeTestSwingset = async (
       ...runtimeOptions,
       bundleFromPath: runtimeOptions.bundleFromPath || readBundleSpecFile,
       bundleFromSourceSpec: (sourceSpec, _options) =>
-        /** @type {Promise<any>} */ (cache.load(sourceSpec)),
+        /** @type {Promise<EndoZipBase64Bundle>} */ (cache.load(sourceSpec)),
     },
   );
   return initializeSwingsetKernel(kernelConfig, kernelStorage, runtimeOptions);
