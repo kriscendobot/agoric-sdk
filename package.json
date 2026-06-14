@@ -75,6 +75,7 @@
     "@lerna-lite/version@npm:4.9.4": "patch:@lerna-lite/version@npm%3A4.9.4#~/.yarn/patches/@lerna-lite-version-npm-4.9.4-77cc9b6d7e.patch",
     "@noble/hashes@npm:^1": "npm:~1.8.0",
     "@noble/hashes@npm:^1.5.0": "npm:~1.8.0",
+    "@endo/eslint-plugin@npm:^2.4.0": "npm:2.4.0",
     "ava@npm:^6.4.1": "patch:ava@npm%3A6.4.1#~/.yarn/patches/ava-npm-6.4.1-be769b2551.patch",
     "ava@npm:^6 || ^7 || ^8": "npm:^7.0.0",
     "concordance@npm:^5.0.4": "patch:concordance@npm%3A5.0.4#~/.yarn/patches/concordance-npm-5.0.4-e641405dd9.patch",
