@@ -35,6 +35,7 @@ const noopFinisher = harden(() => {});
  */
 function addSlogCallbacks(slogCallbacks, unusedMsgPrefix, methods) {
   const unused = new Set(Object.keys(slogCallbacks));
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore objectMap return type widened by Endo update
   const wrappedMethods = /** @type {Methods} */ (
     objectMap(methods, (impl, methodKey) => {
