@@ -383,9 +383,7 @@ export function makeStandaloneFakeCollectionManager(options = {}) {
   return makeFakeCollectionManager(vrm, fakeStuff, options);
 }
 
-/* eslint-disable @endo/no-multi-name-local-export -- back-compat aliases */
 export {
   makeStandaloneFakeVirtualObjectManager as makeFakeVirtualObjectManager,
   makeStandaloneFakeCollectionManager as makeFakeCollectionManager,
 };
-/* eslint-enable @endo/no-multi-name-local-export */

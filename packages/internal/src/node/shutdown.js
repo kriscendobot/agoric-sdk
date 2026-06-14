@@ -78,5 +78,4 @@ export const makeCachedShutdown = (...args) => {
   return cachedShutdown;
 };
 
-// eslint-disable-next-line @endo/no-multi-name-local-export -- deprecated alias
 export { makeCachedShutdown as makeShutdown };
