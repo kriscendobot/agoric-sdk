@@ -193,6 +193,9 @@ export const prepareAsyncFlowTools = (outerZone, outerOptions = {}) => {
             };
             const panic = err => admin.panic(err);
             const membrane = makeReplayMembrane({
+              // @ts-ignore exo guard narrowing: `log` is typed as
+              // `LogStore | Guarded<{...}>`; `makeReplayMembrane` expects
+              // the hand-written `LogStore` typedef. Runtime is the same.
               log,
               bijection,
               vowTools,

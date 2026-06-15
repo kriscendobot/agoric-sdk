@@ -114,6 +114,9 @@ export const prepareLogStore = zone => {
     {
       reset() {
         const { self } = this;
+        // @ts-ignore exo guard narrowing: `self` is typed as
+        // `Guarded<{...}>`; `tmp` is keyed on the hand-written `LogStore`
+        // typedef. Runtime identity is the same exo instance.
         tmp.resetFor(self);
 
         // TODO: Should we resolve replayDoneKit here, in case we're
@@ -124,17 +127,20 @@ export const prepareLogStore = zone => {
         const { state, self } = this;
         const { mapStore } = state;
 
+        // @ts-ignore exo guard narrowing: see reset() above.
         tmp.resetFor(self);
         mapStore.clear();
       },
       getUnfilteredIndex() {
         const { self } = this;
+        // @ts-ignore exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         return eph.unfilteredIndex;
       },
       getIndex() {
         const { self } = this;
+        // @ts-ignore exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         return eph.index;
@@ -148,6 +154,7 @@ export const prepareLogStore = zone => {
       isReplaying() {
         const { state, self } = this;
         const { mapStore } = state;
+        // @ts-ignore exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         return eph.unfilteredIndex < mapStore.getSize();
@@ -158,6 +165,7 @@ export const prepareLogStore = zone => {
       peekEntry() {
         const { state, self } = this;
         const { mapStore } = state;
+        // @ts-ignore exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         self.isReplaying() ||
@@ -172,20 +180,21 @@ export const prepareLogStore = zone => {
        */
       nextUnfilteredEntry() {
         const { self } = this;
+        // @ts-ignore exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         const result = self.peekEntry();
         eph.unfilteredIndex += 1;
-        // @ts-expect-error stricter @endo/exo guard inference narrows the
-        // self.peekEntry() return to a union; entryIsVisible accepts LogEntry.
+        // @ts-ignore exo guard narrowing: peekEntry() return narrows to
+        // a union; entryIsVisible accepts LogEntry.
         if (entryIsVisible(result)) {
           eph.index += 1;
         }
         if (!self.isReplaying()) {
           eph.replayDoneKit.resolve(undefined);
         }
-        // @ts-expect-error stricter @endo/exo guard inference narrows result
-        // to a union; the method declares LogEntry per the JSDoc @returns.
+        // @ts-ignore exo guard narrowing: result narrows to a union;
+        // the method declares LogEntry per the JSDoc @returns.
         return result;
       },
       /**
@@ -194,8 +203,8 @@ export const prepareLogStore = zone => {
       nextEntry() {
         const { self } = this;
         let result = self.nextUnfilteredEntry();
-        // @ts-expect-error stricter @endo/exo guard inference narrows the
-        // nextUnfilteredEntry return to a union; entryIsVisible accepts LogEntry.
+        // @ts-ignore exo guard narrowing: nextUnfilteredEntry return
+        // narrows to a union; entryIsVisible accepts LogEntry.
         while (!entryIsVisible(result)) {
           self.isReplaying() || Fail`Unexpected entry at log tail: ${result}`;
           result = self.nextUnfilteredEntry();
@@ -209,6 +218,7 @@ export const prepareLogStore = zone => {
         const { state, self } = this;
 
         const { mapStore } = state;
+        // @ts-ignore exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         !self.isReplaying() ||
@@ -261,6 +271,7 @@ export const prepareLogStore = zone => {
       },
       promiseReplayDone() {
         const { self } = this;
+        // @ts-ignore exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         return eph.replayDoneKit.promise;

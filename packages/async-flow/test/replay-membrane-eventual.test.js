@@ -65,6 +65,8 @@ const testFirstPlay = async (t, zone, mode = testMode.normal) => {
   const bijection = zone.makeOnce('bij', makeBijection);
 
   const mem = makeReplayMembraneForTesting({
+    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
+    // `makeReplayMembraneForTesting` expects the hand-written `LogStore` typedef.
     log,
     bijection,
     vowTools,
@@ -175,6 +177,8 @@ const testReplay = async (t, zone, mode = testMode.normal) => {
   t.deepEqual(dump, initialDump);
 
   const mem = makeReplayMembraneForTesting({
+    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
+    // `makeReplayMembraneForTesting` expects the hand-written `LogStore` typedef.
     log,
     bijection,
     vowTools,
