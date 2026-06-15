@@ -103,10 +103,10 @@ const testLogStoreReplay = async (t, zone) => {
   ]);
   // Because t.deepEqual is too tolerant. Data-dependent typing; LogStore
   // widened to any.
-  // @ts-ignore LogEntry union narrows the dump positions to Passable;
+  // @ts-expect-error LogEntry union narrows the dump positions to Passable;
   // toPassableCap accepts the runtime Vow stored there.
   t.is(toPassableCap(log.dump()[0][1]), toPassableCap(v1));
-  // @ts-ignore LogEntry union narrows the dump positions to Passable;
+  // @ts-expect-error LogEntry union narrows the dump positions to Passable;
   // toPassableCap accepts the runtime Vow stored there.
   t.is(toPassableCap(log.dump()[1][1]), toPassableCap(v2));
 

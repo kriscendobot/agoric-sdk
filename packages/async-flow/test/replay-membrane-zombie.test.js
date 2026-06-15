@@ -39,7 +39,7 @@ const testMissingStop = async (t, zone) => {
   const bijection = makeBijection();
 
   const memA = makeReplayMembrane({
-    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
+    // @ts-expect-error exo guard narrowing: `log` is typed as `Guarded<{...}>`;
     // `makeReplayMembrane` expects the hand-written `LogStore` typedef.
     log,
     bijection,
@@ -63,7 +63,7 @@ const testMissingStop = async (t, zone) => {
   log.reset();
   bijection.reset();
   const memB = makeReplayMembrane({
-    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
+    // @ts-expect-error exo guard narrowing: `log` is typed as `Guarded<{...}>`;
     // `makeReplayMembrane` expects the hand-written `LogStore` typedef.
     log,
     bijection,
@@ -105,7 +105,7 @@ const testProperStop = async (t, zone) => {
   const bijection = makeBijection();
 
   const memA = makeReplayMembrane({
-    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
+    // @ts-expect-error exo guard narrowing: `log` is typed as `Guarded<{...}>`;
     // `makeReplayMembrane` expects the hand-written `LogStore` typedef.
     log,
     bijection,
@@ -130,7 +130,7 @@ const testProperStop = async (t, zone) => {
   bijection.reset();
   memA.stop(); // the point
   const memB = makeReplayMembrane({
-    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
+    // @ts-expect-error exo guard narrowing: `log` is typed as `Guarded<{...}>`;
     // `makeReplayMembrane` expects the hand-written `LogStore` typedef.
     log,
     bijection,

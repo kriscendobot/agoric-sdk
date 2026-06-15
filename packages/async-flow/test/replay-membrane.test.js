@@ -72,7 +72,7 @@ const testFirstPlay = async (t, zone, showOnConsole = false) => {
   const bijection = zone.makeOnce('bij', makeBijection);
 
   const mem = makeReplayMembrane({
-    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
+    // @ts-expect-error exo guard narrowing: `log` is typed as `Guarded<{...}>`;
     // `makeReplayMembrane` expects the hand-written `LogStore` typedef.
     log,
     bijection,
@@ -151,7 +151,7 @@ const testBadReplay = async (t, zone) => {
   const hOrch7 = dump[1][1];
   const hErr = dump[4][2];
 
-  // @ts-ignore LogEntry union narrows hOrch7 to Passable; hasHost accepts
+  // @ts-expect-error LogEntry union narrows hOrch7 to Passable; hasHost accepts
   // the runtime PassableCap | Vow stored there.
   t.false(bijection.hasHost(hOrch7));
 
@@ -164,8 +164,6 @@ const testBadReplay = async (t, zone) => {
   ]);
 
   const mem = makeReplayMembrane({
-    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
-    // `makeReplayMembrane` expects the hand-written `LogStore` typedef.
     log,
     bijection,
     vowTools,
@@ -177,7 +175,7 @@ const testBadReplay = async (t, zone) => {
   mem.wake();
   t.is(await g1, 'x');
   const gOrch7 = mem.hostToGuest(hOrch7);
-  // @ts-ignore LogEntry union narrows hOrch7 to Passable; has accepts the
+  // @ts-expect-error LogEntry union narrows hOrch7 to Passable; has accepts the
   // runtime PassableCap | Vow stored there.
   t.true(bijection.has(gOrch7, hOrch7));
 
@@ -209,7 +207,7 @@ const testGoodReplay = async (t, zone) => {
   const hOrch7 = dump[1][1];
   const hErr = dump[4][2];
 
-  // @ts-ignore LogEntry union narrows hOrch7 to Passable; hasHost accepts
+  // @ts-expect-error LogEntry union narrows hOrch7 to Passable; hasHost accepts
   // the runtime PassableCap | Vow stored there.
   t.false(bijection.hasHost(hOrch7));
 
@@ -224,8 +222,6 @@ const testGoodReplay = async (t, zone) => {
   const oldLogLen = dump.length;
 
   const mem = makeReplayMembrane({
-    // @ts-ignore exo guard narrowing: `log` is typed as `Guarded<{...}>`;
-    // `makeReplayMembrane` expects the hand-written `LogStore` typedef.
     log,
     bijection,
     vowTools,
@@ -237,7 +233,7 @@ const testGoodReplay = async (t, zone) => {
   mem.wake();
   t.is(await g1, 'x');
   const gOrch7 = mem.hostToGuest(hOrch7);
-  // @ts-ignore LogEntry union narrows hOrch7 to Passable; has accepts the
+  // @ts-expect-error LogEntry union narrows hOrch7 to Passable; has accepts the
   // runtime PassableCap | Vow stored there.
   t.true(bijection.has(gOrch7, hOrch7));
 
