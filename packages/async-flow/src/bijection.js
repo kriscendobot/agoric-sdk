@@ -207,10 +207,12 @@ export const prepareBijection = (
 harden(prepareBijection);
 
 /**
- * Stricter @endo/exo Guarded inference made the prior
- * `ReturnType<ReturnType<typeof prepareBijection>>` form circular (TS2456).
- * Widened to `any` to break the cycle without losing call-site behavior; the
- * exoClass interface guard still enforces shape at runtime.
- *
- * @typedef {any} Bijection
+ * @typedef {object} Bijection
+ * @property {() => void} reset
+ * @property {(g: unknown, h: PassableCap | Vow) => unknown} unwrapInit
+ * @property {(g: unknown) => boolean} hasGuest
+ * @property {(h: PassableCap | Vow) => boolean} hasHost
+ * @property {(g: unknown, h: PassableCap | Vow) => boolean} has
+ * @property {(g: unknown) => unknown} guestToHost
+ * @property {(h: PassableCap | Vow) => unknown} hostToGuest
  */

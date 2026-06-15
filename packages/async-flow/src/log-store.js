@@ -270,10 +270,18 @@ export const prepareLogStore = zone => {
 };
 
 /**
- * Stricter @endo/exo Guarded inference made the prior
- * `ReturnType<ReturnType<typeof prepareLogStore>>` form circular (TS2456).
- * Widened to `any` to break the cycle without losing call-site behavior; the
- * exoClass interface guard still enforces shape at runtime.
- *
- * @typedef {any} LogStore
+ * @typedef {object} LogStore
+ * @property {() => void} reset
+ * @property {() => void} dispose
+ * @property {() => number} getUnfilteredIndex
+ * @property {() => number} getIndex
+ * @property {() => number} getLength
+ * @property {() => boolean} isReplaying
+ * @property {() => LogEntry} peekEntry
+ * @property {() => LogEntry} nextEntry
+ * @property {() => LogEntry} nextUnfilteredEntry
+ * @property {(entry: LogEntry) => number} pushEntry
+ * @property {() => LogEntry[]} dumpUnfiltered
+ * @property {() => LogEntry[]} dump
+ * @property {() => Promise<undefined>} promiseReplayDone
  */
