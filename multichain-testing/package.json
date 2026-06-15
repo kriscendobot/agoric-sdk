@@ -140,7 +140,21 @@
     "@cosmjs/proto-signing@npm:0.32.3": "npm:^0.36.0",
     "@cosmjs/stargate@npm:0.32.3": "npm:^0.36.0",
     "@cosmjs/tendermint-rpc@npm:0.32.3": "npm:^0.36.0",
-    "@endo/bundle-source": "portal:../../agoric-sdk/node_modules/@endo/bundle-source"
+    "@endo/bundle-source": "portal:../../agoric-sdk/node_modules/@endo/bundle-source",
+    "@endo/errors@npm:^1.2.13": "npm:^1.3.1",
+    "@endo/errors@npm:^1.3.0": "npm:^1.3.1",
+    "@endo/lockdown@npm:^1.0.18": "npm:^1.0.19",
+    "@endo/promise-kit@npm:^1.2.0": "npm:^1.2.1",
+    "@endo/import-bundle@npm:^1.6.0": "npm:^1.7.0",
+    "@endo/stream@npm:^1.3.0": "npm:^1.3.1",
+    "@endo/module-source@npm:^1.4.0": "npm:^1.4.1",
+    "@endo/compartment-mapper@npm:^2.0.0": "npm:^2.3.0",
+    "@endo/common@npm:^1.3.0": "npm:^1.4.0",
+    "@endo/eventual-send@npm:^1.3.4": "npm:^1.5.0",
+    "@endo/eventual-send@npm:^1.4.0": "npm:^1.5.0",
+    "@endo/pass-style@npm:^1.6.3": "npm:^1.8.1",
+    "@endo/pass-style@npm:^1.7.0": "npm:^1.8.1",
+    "@endo/marshal@npm:^1.9.0": "npm:^1.10.0"
   },
   "license": "Apache-2.0"
 }
