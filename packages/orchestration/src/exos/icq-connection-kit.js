@@ -2,13 +2,12 @@
 import { Fail } from '@endo/errors';
 import { E } from '@endo/far';
 import { M } from '@endo/patterns';
-import { Vow$, VowShape } from '@agoric/vow';
+import { VowShape } from '@agoric/vow';
 import { NonNullish, makeTracer } from '@agoric/internal';
 import { makeQueryPacket, parseQueryPacket } from '../utils/packet.js';
 import { ICQMsgShape, OutboundConnectionHandlerI } from '../typeGuards.js';
 
 /**
- * @import {CastedPattern} from '@endo/patterns';
  * @import {Zone} from '@agoric/base-zone';
  * @import {Connection, Port} from '@agoric/network';
  * @import {Remote, Vow, VowTools} from '@agoric/vow';
@@ -22,11 +21,7 @@ const trace = makeTracer('Orchestration:ICQConnection');
 export const ICQConnectionI = M.interface('ICQConnection', {
   getLocalAddress: M.call().returns(M.string()),
   getRemoteAddress: M.call().returns(M.string()),
-  query: M.call(M.arrayOf(ICQMsgShape)).returns(
-    /** @type {CastedPattern<Vow<JsonSafe<ResponseQuery>[]>>} */ (
-      Vow$(M.arrayOf(M.record()))
-    ),
-  ),
+  query: M.call(M.arrayOf(ICQMsgShape)).returns(VowShape),
 });
 
 /**
@@ -101,23 +96,15 @@ export const prepareICQConnectionKit = (zone, { watch, asVow }) =>
           return asVow(() => {
             const { connection } = this.state;
             if (!connection) throw Fail`connection not available`;
-            // Cast the watcher return through Vow<JsonSafe<ResponseQuery>[]>;
-            // the structural inference widens to include Record<string, any>
-            // from the inner ResponseQuery.toJSON call.
-            return /** @type {Vow<JsonSafe<ResponseQuery>[]>} */ (
-              watch(
-                E(connection).send(makeQueryPacket(msgs)),
-                this.facets.parseQueryPacketWatcher,
-              )
+            return watch(
+              E(connection).send(makeQueryPacket(msgs)),
+              this.facets.parseQueryPacketWatcher,
             );
           });
         },
       },
       parseQueryPacketWatcher: {
-        /**
-         * @param {string} ack packet acknowledgement string
-         * @returns {JsonSafe<ResponseQuery>[]}
-         */
+        /** @param {string} ack packet acknowledgement string */
         onFulfilled(ack) {
           return parseQueryPacket(ack);
         },
