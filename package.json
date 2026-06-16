@@ -61,10 +61,9 @@
     "@cosmjs/stargate@npm:0.32.3": "npm:^0.36.0",
     "@cosmjs/tendermint-rpc@npm:0.32.3": "npm:^0.36.0",
     "@cosmology/ast@npm:2.2.0": "patch:@cosmology/ast@npm%3A2.2.0#~/.yarn/patches/@cosmology-ast-npm-2.2.0-40b2669a5e.patch",
-    "@cosmology/telescope@npm:^1.12.21": "patch:@cosmology/telescope@npm%3A1.12.21#~/.yarn/patches/@cosmology-telescope-npm-1.12.21-6ca5e89f7e.patch",
-    "@endo/bundle-source": "patch:@endo/bundle-source@npm%3A4.2.0#~/.yarn/patches/@endo-bundle-source-npm-4.2.0-2a20f61a7d.patch",
-    "@endo/far@npm:^1.0.0": "patch:@endo/far@npm%3A1.1.14#~/.yarn/patches/@endo-far-npm-1.1.14-ef03a62612.patch",
-    "@endo/far@npm:^1.1.14": "patch:@endo/far@npm%3A1.1.14#~/.yarn/patches/@endo-far-npm-1.1.14-ef03a62612.patch",
+    "@endo/bundle-source": "patch:@endo/bundle-source@npm%3A4.3.2#~/.yarn/patches/@endo-bundle-source-npm-4.3.2-fc66574e44.patch",
+    "@endo/compartment-mapper@npm:^2.0.0": "patch:@endo/compartment-mapper@npm%3A2.3.0#~/.yarn/patches/@endo-compartment-mapper-npm-2.3.0-29c504f4c7.patch",
+    "@endo/eslint-plugin@npm:^2.4.0": "npm:2.4.0",
     "@graphql-codegen/visitor-plugin-common@npm:^6.1.0": "patch:@graphql-codegen/visitor-plugin-common@npm%3A6.1.0#~/.yarn/patches/@graphql-codegen-visitor-plugin-common-npm-6.1.0-c6f558d634.patch",
     "@graphql-codegen/visitor-plugin-common@npm:^6.2.2": "patch:@graphql-codegen/visitor-plugin-common@npm%3A6.2.2#~/.yarn/patches/@graphql-codegen-visitor-plugin-common-npm-6.2.2-1dfc1601b5.patch",
     "@graphql-codegen/visitor-plugin-common@npm:2.13.8": "patch:@graphql-codegen/visitor-plugin-common@npm%3A6.2.2#~/.yarn/patches/@graphql-codegen-visitor-plugin-common-npm-6.2.2-1dfc1601b5.patch",
@@ -75,7 +74,6 @@
     "@lerna-lite/version@npm:4.9.4": "patch:@lerna-lite/version@npm%3A4.9.4#~/.yarn/patches/@lerna-lite-version-npm-4.9.4-77cc9b6d7e.patch",
     "@noble/hashes@npm:^1": "npm:~1.8.0",
     "@noble/hashes@npm:^1.5.0": "npm:~1.8.0",
-    "@endo/eslint-plugin@npm:^2.4.0": "npm:2.4.0",
     "ava@npm:^6.4.1": "patch:ava@npm%3A6.4.1#~/.yarn/patches/ava-npm-6.4.1-be769b2551.patch",
     "ava@npm:^6 || ^7 || ^8": "npm:^7.0.0",
     "concordance@npm:^5.0.4": "patch:concordance@npm%3A5.0.4#~/.yarn/patches/concordance-npm-5.0.4-e641405dd9.patch",
@@ -100,12 +98,10 @@
     "readable-stream@npm:3": "npm:4.7.0",
     "readable-stream@npm:3.6.2": "npm:4.7.0",
     "rxjs@npm:^6.4.0": "patch:rxjs@npm%3A7.5.5#~/.yarn/patches/rxjs-npm-7.5.5-d0546b1ccb.patch",
-    "rxjs@npm:^7.5.5": "patch:rxjs@npm%3A7.5.5#~/.yarn/patches/rxjs-npm-7.5.5-d0546b1ccb.patch",
-    "@endo/far": "patch:@endo/far@npm%3A1.1.14#~/.yarn/patches/@endo-far-npm-1.1.14-ef03a62612.patch",
-    "@endo/compartment-mapper@npm:^2.0.0": "patch:@endo/compartment-mapper@npm%3A2.3.0#~/.yarn/patches/@endo-compartment-mapper-npm-2.3.0-29c504f4c7.patch"
+    "rxjs@npm:^7.5.5": "patch:rxjs@npm%3A7.5.5#~/.yarn/patches/rxjs-npm-7.5.5-d0546b1ccb.patch"
   },
   "dependenciesMeta": {
-    "better-sqlite3@10.1.0": {
+    "better-sqlite3@12.10.0": {
       "built": true
     },
     "dprint@0.53.0": {
@@ -116,7 +112,7 @@
     }
   },
   "engines": {
-    "node": "^20.9 || ^22.11"
+    "node": "^22.11"
   },
   "scripts": {
     "prepack-package": "scripts/packing/prepack-package.mjs",
@@ -135,16 +131,15 @@
     "lint:eslint": "node ./scripts/eslint-repo.mjs",
     "lint-fix": "yarn lerna run --no-bail lint-fix",
     "lint": "yarn run -T run-s --continue-on-error 'lint:*'",
-    "lint:packages": "yarn typecheck-all && echo Some packages have other lint: targets that are ignored",
+    "lint:packages": "yarn typecheck-packages && echo Some packages have other lint: targets that are ignored",
     "lint:package-names": "./scripts/verify-package-names.js",
     "lint:tools-scope-imports": "node ./scripts/ci/check-tools-scope-imports.mjs",
-    "lint:types": "tsc",
+    "lint:types": "tsgo --tsBuildInfoFile tsconfig.tsgo.tsbuildinfo",
     "lint:scripts": "yarn eslint scripts/*js",
     "test": "yarn lerna run --no-bail test",
     "test:xs": "yarn workspaces foreach --all run test:xs",
-    "typecheck-all": "yarn workspaces foreach --all --parallel --verbose exec sh -c 'grep -q \"\\\"lint:types\\\"\" package.json || exit 0; yarn run -T tsc --noEmit --incremental'",
-    "typecheck-quick": "yarn run -T tsc -p tsconfig.quickcheck.json",
-    "typecheck-tsgo": "yarn run -T tsgo -p tsconfig.quickcheck.json",
+    "typecheck-all": "yarn run -T tsgo -p tsconfig.check.json --tsBuildInfoFile tsconfig.check.tsgo.tsbuildinfo",
+    "typecheck-packages": "yarn workspaces foreach --all --parallel --verbose run lint:types",
     "build": "yarn workspaces foreach --all --topological run build && scripts/agd-builder.sh stamp yarn-built",
     "postinstall": "scripts/agd-builder.sh stamp yarn-installed",
     "build-lockfiles": "./scripts/update-package-locks.sh",

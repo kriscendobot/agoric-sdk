@@ -1,5 +1,5 @@
 diff --git a/cache.js b/cache.js
-index e2325f2..bf8cdd9 100644
+index a660844ab12bba5b6116fa9b0720dc5cdc818b8d..8c7425c3932224f9b5a970b678762949e7d5b0f0 100644
 --- a/cache.js
 +++ b/cache.js
 @@ -101,12 +101,17 @@ export const makeBundleCache = (wr, cwd, readPowers, opts) => {
@@ -14,26 +14,28 @@ index e2325f2..bf8cdd9 100644
  
      const bundle = await bundleSource(
        rootPath,
-       {
+       /** @type {BundleOptions<ModuleFormat>} */ ({
          ...bundleOptions,
 +        esbuildPath,
          noTransforms,
          elideComments,
          format,
 diff --git a/package.json b/package.json
-index fabd755..8351878 100644
+index 9cf59f699238c1e52333720ed90127570f64ad68..9efdb2a5bdb4f1f51419b009c0fe742c21e4580c 100644
 --- a/package.json
 +++ b/package.json
-@@ -30,6 +30,7 @@
+@@ -19,7 +19,8 @@
      "@endo/init": "^1.1.13",
-     "@endo/promise-kit": "^1.2.0",
+     "@endo/promise-kit": "^1.2.1",
      "@endo/where": "^1.0.11",
-+    "esbuild": "^0.25.2",
-     "ts-blank-space": "^0.6.1"
+-    "amaro": "^1.1.9"
++    "amaro": "^1.1.9",
++    "esbuild": "^0.25.2"
    },
-   "devDependencies": {
+   "keywords": [],
+   "files": [
 diff --git a/src/bundle-source.js b/src/bundle-source.js
-index 5e73f2b..2d4317e 100644
+index 5e73f2bdad73b2daca9485a9ef5b2ef03526d668..cd591d685a6dc561782138e0774eeb3478fedfe0 100644
 --- a/src/bundle-source.js
 +++ b/src/bundle-source.js
 @@ -1,4 +1,19 @@
@@ -43,7 +45,7 @@ index 5e73f2b..2d4317e 100644
 + * bundle before POSTing (2 hex chars per input byte), with an ample size
 + * reserved for overhead (10,000 bytes).
 + */
-+export const AGORIC_MAX_BYTE_LIMIT = (1_000_000 / 2) - 10_000;
++export const AGORIC_MAX_BYTE_LIMIT = 1_000_000 / 2 - 10_000;
 +/**
 + * We really only need externals to prune these particular dynamic imports.
 + */
@@ -56,7 +58,7 @@ index 5e73f2b..2d4317e 100644
  export const DEFAULT_MODULE_FORMAT = 'endoZipBase64';
  export const SUPPORTED_FORMATS = [
    'getExport',
-@@ -9,6 +24,118 @@ export const SUPPORTED_FORMATS = [
+@@ -9,6 +24,116 @@ export const SUPPORTED_FORMATS = [
  
  /** @import {BundleOptions, BundleSource, ModuleFormat} from './types.js' */
  
@@ -158,8 +160,6 @@ index 5e73f2b..2d4317e 100644
 +const esbuildBundle = async (startFilename, outfile, initialExternals = []) => {
 +  const avoidBundling = 'esbuild';
 +  const esbuild = await import(avoidBundling);
-+  const avoidBundlingModule = 'module';
-+  const module = await import(avoidBundlingModule);
 +
 +  await esbuild.build({
 +    entryPoints: [startFilename],
@@ -175,28 +175,22 @@ index 5e73f2b..2d4317e 100644
  /**
   * @param {string} startFilename
   * @param {ModuleFormat | BundleOptions<ModuleFormat>} [options]
-@@ -22,17 +149,49 @@ const bundleSourceImpl = async (
-   await null;
+@@ -23,11 +148,35 @@ const bundleSourceImpl = async (
    const bundleOptions =
      typeof options === 'string' ? { format: options } : options;
--  const moduleFormat = bundleOptions.format || DEFAULT_MODULE_FORMAT;
-+  const {
-+    format: moduleFormat = DEFAULT_MODULE_FORMAT,
-+    byteLimit = AGORIC_MAX_BYTE_LIMIT,
-+  } = bundleOptions;
+   const moduleFormat = bundleOptions.format || DEFAULT_MODULE_FORMAT;
++  const { byteLimit = AGORIC_MAX_BYTE_LIMIT } = bundleOptions;
  
    switch (moduleFormat) {
      case 'endoZipBase64': {
--      const { bundleZipBase64 } = await import('./zip-base64.js');
+       const { bundleZipBase64 } = await import('./zip-base64.js');
 -      return bundleZipBase64(startFilename, bundleOptions, powers);
-+      const avoidBundling = './zip-base64.js';
-+      const { bundleZipBase64 } = await import(avoidBundling);
 +      const simpleBundle = await bundleZipBase64(
 +        startFilename,
 +        bundleOptions,
 +        powers,
 +      );
-+      if (await calculateUploadSize(simpleBundle.endoZipBase64) < byteLimit) {
++      if ((await calculateUploadSize(simpleBundle.endoZipBase64)) < byteLimit) {
 +        return simpleBundle;
 +      }
 +
@@ -206,12 +200,8 @@ index 5e73f2b..2d4317e 100644
 +      await esbuildBundle(startFilename, esbuildPath, powers?.externals);
 +
 +      await prepareInputDirectory(esbuildPath);
-+      const esbuilt = await bundleZipBase64(
-+        esbuildPath,
-+        bundleOptions,
-+        powers,
-+      );
-+      if (await calculateUploadSize(esbuilt.endoZipBase64) > byteLimit) {
++      const esbuilt = await bundleZipBase64(esbuildPath, bundleOptions, powers);
++      if ((await calculateUploadSize(esbuilt.endoZipBase64)) > byteLimit) {
 +        const warning = RangeError(
 +          `Bundled source ${startFilename} still exceeds byteLimit of ${byteLimit} after minimizing; got ${esbuilt.endoZipBase64.length} bytes`,
 +        );
@@ -222,43 +212,16 @@ index 5e73f2b..2d4317e 100644
      }
      case 'getExport':
      case 'nestedEvaluate':
-     case 'endoScript': {
--      const { bundleScript } = await import('./script.js');
-+      const avoidBundling = './script.js';
-+      const { bundleScript } = await import(avoidBundling);
-       return bundleScript(startFilename, moduleFormat, bundleOptions, powers);
-     }
-     default:
 diff --git a/src/types.d.ts b/src/types.d.ts
-index aaf1f0e..81e507b 100644
+index 764386d28a96aaeefe69ab15544e794f420f4e52..e94b34b37b3e71fb621a89491dc736651925cab0 100644
 --- a/src/types.d.ts
 +++ b/src/types.d.ts
-@@ -168,6 +168,8 @@ export type BundleOptions<T extends ModuleFormat> = {
-      * exports and imports.
+@@ -177,6 +177,8 @@ export type BundleOptions<T extends ModuleFormat> = {
+      * common dependencies for the entry package.
       */
-     conditions?: string[] | undefined;
+     commonDependencies?: Record<string, string> | undefined;
 +    byteLimit?: number | undefined;
 +    esbuildPath?: string | undefined;
- };
- export type ReadFn = (location: string) => Promise<Uint8Array>;
- /**
-@@ -176,4 +178,4 @@ export type ReadFn = (location: string) => Promise<Uint8Array>;
-  * Must return the given logical location if the real location does not exist.
-  */
- export type CanonicalFn = (location: string) => Promise<string>;
--//# sourceMappingURL=types.d.ts.map
-\ No newline at end of file
-+//# sourceMappingURL=types.d.ts.map
-diff --git a/src/types.ts b/src/types.ts
-index 1bd6d70..1f5f9a5 100644
---- a/src/types.ts
-+++ b/src/types.ts
-@@ -269,6 +269,8 @@ export type BundleOptions<T extends ModuleFormat> = {
-    * exports and imports.
-    */
-   conditions?: string[] | undefined;
-+  byteLimit?: number | undefined;
-+  esbuildPath?: string | undefined;
- };
- 
- export type ReadFn = (location: string) => Promise<Uint8Array>;
+ } & (T extends 'endoZipBase64' ? {
+     /**
+      * import hook for exit modules, only honored
