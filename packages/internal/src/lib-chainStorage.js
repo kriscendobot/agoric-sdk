@@ -10,7 +10,7 @@ import * as cb from './callback.js';
  * @import {RemotableBrand} from '@endo/eventual-send';
  * @import {ERef} from '@endo/far';
  * @import {Marshal, Passable} from '@endo/marshal';
- * @import {Remote, ERemote} from './types.js';
+ * @import {Remote, ERemote, StorageNode as StorageNodeAlias} from './types.js';
  * @import {EMarshaller} from './marshal/wrap-marshaller.js';
  * @import {Zone} from '@agoric/base-zone';
  * @import {Callback} from './types.js';
@@ -59,7 +59,7 @@ export const StreamCellShape = harden({
  * survives declaration emit. Re-exported here as an alias so existing
  * `from '@agoric/internal/src/lib-chainStorage.js'` importers keep working.
  *
- * @typedef {import('./types.js').StorageNode} StorageNode
+ * @typedef {StorageNodeAlias} StorageNode
  */
 
 const ChainStorageNodeI = M.interface('StorageNode', {
