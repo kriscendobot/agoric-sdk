@@ -359,6 +359,18 @@ export async function makeSwingsetController(
             ),
             URL: globalThis.Base64, // Unavailable only on XSnap
             Base64: globalThis.Base64, // Available only on XSnap
+            // SES 2.0 (endojs/endo#3153) removed Float*Array from shared
+            // compartment globals as part of NaN side-channel hardening.
+            // The kernel bundle runs in a constructed compartment, so it
+            // needs the Float*Array constructors endowed in order to pass
+            // them on to vat compartments (and ultimately to embedded
+            // pre-fix @endo/marshal source in upstream release bundles
+            // like fast-usdc-beta-1/rc1/rc2/cctp-b1, whose encodePassable
+            // still calls `new Float64Array(...)`). New marshal source
+            // uses DataView and does not need the endowment.
+            Float16Array: globalThis.Float16Array,
+            Float32Array: globalThis.Float32Array,
+            Float64Array: globalThis.Float64Array,
           },
         });
         noteStartupPhase(
