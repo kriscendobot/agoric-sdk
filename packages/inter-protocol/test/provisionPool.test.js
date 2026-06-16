@@ -1,4 +1,5 @@
-// @ts-check
+// @ts-nocheck — under-supported package
+
 import { test as unknownTest } from '@agoric/swingset-vat/tools/prepare-test-env-ava.js';
 
 import { AmountMath, makeIssuerKit } from '@agoric/ertp';
@@ -38,7 +39,6 @@ import {
  * @import {Installation} from '@agoric/zoe';
  * @import {Brand} from '@agoric/ertp';
  * @import {Purse} from '@agoric/ertp';
- * @import {SourceBundle} from '@agoric/zoe';
  * @import {ERef} from '@agoric/vow';
  */
 
@@ -54,16 +54,14 @@ const test = unknownTest;
 
 const makeTestContext = async () => {
   const bundleCache = await unsafeSharedBundleCache;
-  const { provisionPoolBundle: rawPolicyBundle } =
-    await bundleCache.loadRegistry(interProtocolBundleSpecs);
-  const { committeeBundle: rawCommitteeBundle } =
-    await bundleCache.loadRegistry(governanceSourceSpecRegistry);
-  const { centralSupplyBundle: rawCentralSupplyBundle } =
-    await bundleCache.loadRegistry(vatsSourceSpecRegistry);
-  const policyBundle = /** @type {SourceBundle} */ (rawPolicyBundle);
-  const committeeBundle = /** @type {SourceBundle} */ (rawCommitteeBundle);
-  const centralSupplyBundle = /** @type {SourceBundle} */ (
-    rawCentralSupplyBundle
+  const { provisionPoolBundle: policyBundle } = await bundleCache.loadRegistry(
+    interProtocolBundleSpecs,
+  );
+  const { committeeBundle } = await bundleCache.loadRegistry(
+    governanceSourceSpecRegistry,
+  );
+  const { centralSupplyBundle } = await bundleCache.loadRegistry(
+    vatsSourceSpecRegistry,
   );
   const { zoe, feeMintAccessP } = await setUpZoeForTest();
 

@@ -61,8 +61,6 @@ test('chain info', async t => {
     {
       agoricNames: facadeServices.agoricNames,
       timerService: facadeServices.timerService,
-      // @ts-expect-error stricter @endo/exo Guarded inference vs the
-      // declared Remote<StorageNode> | undefined parameter.
       storageNode: commonPrivateArgs.storageNode,
       orchestrationService: facadeServices.orchestrationService,
       localchain: facadeServices.localchain,
@@ -99,8 +97,6 @@ test('missing chain info', async t => {
     {
       agoricNames: facadeServices.agoricNames,
       timerService: facadeServices.timerService,
-      // @ts-expect-error stricter @endo/exo Guarded inference vs the
-      // declared Remote<StorageNode> | undefined parameter.
       storageNode: commonPrivateArgs.storageNode,
       orchestrationService: facadeServices.orchestrationService,
       localchain: facadeServices.localchain,
@@ -133,8 +129,6 @@ test('racy chain info', async t => {
     {
       agoricNames: facadeServices.agoricNames,
       timerService: facadeServices.timerService,
-      // @ts-expect-error stricter @endo/exo Guarded inference vs the
-      // declared Remote<StorageNode> | undefined parameter.
       storageNode: commonPrivateArgs.storageNode,
       orchestrationService: facadeServices.orchestrationService,
       localchain: facadeServices.localchain,
@@ -177,8 +171,6 @@ test('asset / denom info', async t => {
     {
       agoricNames: facadeServices.agoricNames,
       timerService: facadeServices.timerService,
-      // @ts-expect-error stricter @endo/exo Guarded inference vs the
-      // declared Remote<StorageNode> | undefined parameter.
       storageNode: commonPrivateArgs.storageNode,
       orchestrationService: facadeServices.orchestrationService,
       localchain: facadeServices.localchain,

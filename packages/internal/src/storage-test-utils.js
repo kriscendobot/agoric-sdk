@@ -321,8 +321,6 @@ harden(makeFakeStorageKit);
 /** @returns {MockChainStorageRoot} */
 export const makeMockChainStorageRoot = () => {
   const { rootNode, data } = makeFakeStorageKit('mockChainStorageRoot');
-  // @ts-expect-error stricter @endo/marshal Remotable inference vs the
-  // declared MockChainStorageRoot intersection; runtime methods match.
   return Far('mockChainStorage', {
     ...bindAllMethods(rootNode),
     /**

@@ -38,8 +38,6 @@ const setup = () => {
     'cache',
   );
   const cache = makeCache(
-    // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-    // ERemote<StorageNode> parameter; runtime guard matches.
     makeChainStorageCoordinator(chainStorage, makeSimpleMarshaller()),
   );
   return { cache, storageNodeState };

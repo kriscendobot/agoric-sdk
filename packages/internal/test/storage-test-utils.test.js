@@ -141,6 +141,7 @@ test('makeFakeStorageKit', async t => {
   });
   for await (const [label, val] of nonStrings) {
     await t.throwsAsync(
+      // @ts-expect-error invalid value
       () => deepNode.setValue(val),
       undefined,
       `${label} value for non-root node is rejected`,

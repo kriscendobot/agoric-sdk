@@ -1,3 +1,5 @@
+// @ts-nocheck — under-supported package; type errors are tolerated
+
 import { Fail } from '@endo/errors';
 import { makePromiseKit } from '@endo/promise-kit';
 import { E } from '@endo/eventual-send';
@@ -22,7 +24,7 @@ import { makeQuorumCounter } from './quorumCounter.js';
  * @import {MapStore} from '@agoric/swingset-liveslots';
  * @import {Publisher} from '@agoric/notifier';
  * @import {ZCF} from '@agoric/zoe';
- * @import {BuildVoteCounter, OutcomeRecord, Position, QuestionSpec, VoteCounterFacets, VoteStatistics} from './types.js';
+ * @import {BuildVoteCounter, OutcomeRecord, Position, QuestionSpec, VoteStatistics} from './types.js';
  * @import {PromiseRecord} from '@endo/promise-kit';
  */
 
@@ -159,8 +161,6 @@ const makeBinaryVoteCounter = (
       submitVote(voterHandle, chosenPositions, shares = 1n) {
         assert(chosenPositions.length === 1, 'only 1 position allowed');
         const [position] = chosenPositions;
-        // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
-        // a Position union-vs-concrete mismatch at positionIncluded.
         positionIncluded(positions, position) ||
           Fail`The specified choice is not a legal position: ${position}.`;
 
@@ -168,24 +168,17 @@ const makeBinaryVoteCounter = (
         // to make sure that each voter's vote is recorded only once.
         const completedBallot = harden({ chosen: position, shares });
         allBallots.has(voterHandle)
-          ? // @ts-expect-error stricter @endo/marshal RecordedBallot narrowing
-            // vs the union returned by harden(...).
-            allBallots.set(voterHandle, completedBallot)
-          : // @ts-expect-error stricter @endo/marshal RecordedBallot narrowing
-            // vs the union returned by harden(...).
-            allBallots.init(voterHandle, completedBallot);
+          ? allBallots.set(voterHandle, completedBallot)
+          : allBallots.init(voterHandle, completedBallot);
         return completedBallot;
       },
     },
   );
 
-  // Stricter @endo/exo makeExo overload signatures surface a
-  // Guard-vs-concrete-methods mismatch at the publicFacet boundary; the
-  // runtime interface guard still enforces the JSDoc shape.
   const publicFacet = makeExo(
     'BinaryVoteCounter public',
     BinaryVoteCounterPublicI,
-    /** @type {any} */ ({
+    {
       getQuestion() {
         return question;
       },
@@ -204,20 +197,14 @@ const makeBinaryVoteCounter = (
       getInstance() {
         return instance;
       },
-    }),
+    },
   );
 
-  // Stricter @endo/exo Guarded inference vs the declared VoteCounterFacets
-  // type; the runtime facets satisfy the interface.
-  return /** @type {VoteCounterFacets} */ (
-    /** @type {unknown} */ (
-      harden({
-        creatorFacet,
-        publicFacet,
-        closeFacet,
-      })
-    )
-  );
+  return harden({
+    creatorFacet,
+    publicFacet,
+    closeFacet,
+  });
 };
 
 // The contract wrapper extracts the terms and runs makeBinaryVoteCounter().

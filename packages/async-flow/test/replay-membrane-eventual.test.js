@@ -65,8 +65,6 @@ const testFirstPlay = async (t, zone, mode = testMode.normal) => {
   const bijection = zone.makeOnce('bij', makeBijection);
 
   const mem = makeReplayMembraneForTesting({
-    // @ts-expect-error exo guard narrowing: `log` is typed as `Guarded<{...}>`;
-    // `makeReplayMembraneForTesting` expects the hand-written `LogStore` typedef.
     log,
     bijection,
     vowTools,

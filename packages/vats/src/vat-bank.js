@@ -104,9 +104,9 @@ const prepareBankPurseController = zone => {
   /**
    * @param {BridgeChannel} bankBridge
    * @param {string} denom
-   * @param {Brand} brand
+   * @param {Brand<'nat'>} brand
    * @param {string} address
-   * @param {PublishKit<Amount>} balanceKit
+   * @param {PublishKit<Amount<'nat'>>} balanceKit
    * @returns {VirtualPurseController}
    */
   const makeBankPurseController = zone.exoClass(
@@ -115,9 +115,9 @@ const prepareBankPurseController = zone => {
     /**
      * @param {BridgeChannel} bankBridge
      * @param {string} denom
-     * @param {Brand} brand
+     * @param {Brand<'nat'>} brand
      * @param {string} address
-     * @param {LatestTopic<Amount>} balanceTopic
+     * @param {LatestTopic<Amount<'nat'>>} balanceTopic
      */
     (bankBridge, denom, brand, address, balanceTopic) => ({
       bankBridge,
@@ -132,10 +132,9 @@ const prepareBankPurseController = zone => {
         assert.equal(b, brand);
         return balanceTopic;
       },
+      /** @param {Amount<'nat'>} amt */
       async pushAmount(amt) {
         const { bankBridge, denom, address, brand } = this.state;
-        // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
-        // a CopySet|CopyBag|Key[] union vs Amount mismatch at getValue.
         const value = AmountMath.getValue(brand, amt);
         const update = await bankBridge.toBridge({
           type: 'VBANK_GIVE',
@@ -145,10 +144,9 @@ const prepareBankPurseController = zone => {
         });
         await bankBridge.fromBridge(update);
       },
+      /** @param {Amount<'nat'>} amt */
       async pullAmount(amt) {
         const { bankBridge, denom, address, brand } = this.state;
-        // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
-        // a CopySet|CopyBag|Key[] union vs Amount mismatch at getValue.
         const value = AmountMath.getValue(brand, amt);
         const update = await bankBridge.toBridge({
           type: 'VBANK_GRAB',
@@ -171,7 +169,7 @@ const prepareRewardPurseController = zone =>
     /**
      * @param {BridgeChannel} bankChannel
      * @param {string} denom
-     * @param {Brand} brand
+     * @param {Brand<'nat'>} brand
      */
     (bankChannel, denom, brand) => ({ bankChannel, denom, brand }),
     {
@@ -183,10 +181,9 @@ const prepareRewardPurseController = zone =>
       async pullAmount(_amount) {
         throw Error(`Cannot pull from reward distributor`);
       },
+      /** @param {Amount<'nat'>} amount */
       async pushAmount(amount) {
         const { brand, bankChannel, denom } = this.state;
-        // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
-        // a CopySet|CopyBag|Key[] union vs Amount mismatch at getValue.
         const value = AmountMath.getValue(brand, amount);
         await bankChannel.toBridge({
           type: 'VBANK_GIVE_TO_REWARD_DISTRIBUTOR',
@@ -197,9 +194,6 @@ const prepareRewardPurseController = zone =>
     },
   );
 
-// Stricter @endo/exo exoClass overload signatures surface a
-// Guard-vs-concrete-methods mismatch at BankChannelHandler boundary; the
-// runtime interface guard still enforces the declared shape.
 /** @param {Zone} zone */
 const prepareBankChannelHandler = zone =>
   zone.exoClass(
@@ -207,7 +201,7 @@ const prepareBankChannelHandler = zone =>
     BridgeHandlerI,
     /** @param {MapStore<string, MapStore<string, BalanceUpdater>>} denomToAddressUpdater */
     denomToAddressUpdater => ({ denomToAddressUpdater }),
-    /** @type {any} */ ({
+    {
       /** @param {BridgeMessage} obj */
       async fromBridge(obj) {
         switch (obj?.type) {
@@ -244,7 +238,7 @@ const prepareBankChannelHandler = zone =>
           }
         }
       },
-    }),
+    },
   );
 
 /**
@@ -358,9 +352,9 @@ const prepareAssetSubscription = zone => {
         return pubList;
       },
       [Symbol.asyncIterator]() {
-        // @ts-expect-error stricter @endo/exo Guarded inference vs the
-        // declared ERef<EachTopic<any>> parameter; runtime self satisfies.
-        return subscribeEach(this.self)[Symbol.asyncIterator]();
+        return subscribeEach(
+          /** @type {EachTopic<any>} */ (/** @type {unknown} */ (this.self)),
+        )[Symbol.asyncIterator]();
       },
     },
   );
@@ -493,7 +487,7 @@ const prepareBank = (
           this.state.assetSubscriber,
         );
       },
-      /** @param {Brand} brand */
+      /** @param {Brand<'nat'>} brand */
       async getPurse(brand) {
         const {
           bankChannel,
@@ -519,7 +513,7 @@ const prepareBank = (
           }
           const addressToUpdater = denomToAddressUpdater.get(assetRecord.denom);
 
-          /** @type {PublishKit<Amount>} */
+          /** @type {PublishKit<Amount<'nat'>>} */
           const { publisher, subscriber } = makePublishKit();
           const balanceUpdater = makeBalanceUpdater(brand, publisher);
           addressToUpdater.init(address, balanceUpdater);
@@ -599,9 +593,6 @@ const prepareBankManager = (
 ) => {
   const detachedZone = zone.detached();
 
-  // Stricter @endo/exo exoClass overload signatures surface a
-  // Guard-vs-concrete-methods mismatch at BankManager boundary; the runtime
-  // interface guard still enforces the declared shape.
   const makeBankManager = zone.exoClass(
     'BankManager',
     BankManagerI,
@@ -647,7 +638,7 @@ const prepareBankManager = (
         nameAdmin,
       };
     },
-    /** @type {any} */ ({
+    {
       /**
        * Returns assets as they are added to the bank.
        *
@@ -663,7 +654,7 @@ const prepareBankManager = (
       /**
        * @param {string} denom
        * @param {AssetIssuerKit} feeKit
-       * @returns {ERef<EOnly<DepositFacet>>}
+       * @returns {Promise<EOnly<DepositFacet>>}
        */
       getRewardDistributorDepositFacet(denom, feeKit) {
         const { bankChannel } = this.state;
@@ -819,7 +810,7 @@ const prepareBankManager = (
         addressToBank.init(address, harden({ bank, brandToVPurse }));
         return bank;
       },
-    }),
+    },
   );
   return makeBankManager;
 };

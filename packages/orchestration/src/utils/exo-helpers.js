@@ -59,7 +59,7 @@ export const makeVowExoHelpers = ({ watch }) => {
        * @template [T=undefined]
        * @param {Vow<unknown>} inputV
        * @param {T} [newValue]
-       * @returns {Vow<T>}
+       * @returns {Vow<import('@agoric/vow').Fulfilled<T>>}
        */
       overrideVow(inputV, newValue) {
         return watch(inputV, this.facets.overrideVowWatcher, newValue);
@@ -197,8 +197,6 @@ export const makeVowExoHelpers = ({ watch }) => {
               name,
               /** @type {{ [T in M[number]]: MethodGuard }} */ (
                 /** @type {unknown} */ (
-                  // Cast through unknown: stricter @endo/exo MethodGuard
-                  // generic surface rejects the entries-shape direct cast.
                   Object.fromEntries(
                     methods.map(method => [
                       method,

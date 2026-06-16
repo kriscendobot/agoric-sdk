@@ -359,8 +359,6 @@ test.serial('create from kit', async t => {
     name: contractName,
     storageNode,
     kit,
-    // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-    // Partial<PortfolioPrivateArgs> shape; runtime values satisfy guards.
     initialPrivateArgs,
   });
   expectType<typeof cc>(undefined as unknown as ContractControl<YMaxStartFn>);

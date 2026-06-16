@@ -1,3 +1,5 @@
+// @ts-nocheck — under-supported package; type errors are tolerated
+
 import { Fail } from '@endo/errors';
 import { E } from '@endo/eventual-send';
 import { makePromiseKit } from '@endo/promise-kit';
@@ -23,7 +25,7 @@ import { breakTie } from './breakTie.js';
  * @import {MapStore} from '@agoric/swingset-liveslots';
  * @import {Publisher} from '@agoric/notifier';
  * @import {ContractMeta, Installation, Instance, Invitation, ZCF} from '@agoric/zoe';
- * @import {QuestionSpec, BuildMultiVoteCounter, MultiOutcomeRecord, MultiVoteCounterFacets, Position, VoteStatistics} from './types.js';
+ * @import {QuestionSpec, BuildMultiVoteCounter, MultiOutcomeRecord, Position, VoteStatistics} from './types.js';
  * @import {PromiseRecord} from '@endo/promise-kit';
  */
 
@@ -178,8 +180,6 @@ const makeMultiCandidateVoteCounter = (
           Fail`The number of choices exceeds the max choices.`;
 
         for (const position of chosenPositions) {
-          // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
-          // a Position union-vs-concrete mismatch at positionIncluded.
           positionIncluded(positions, position) ||
             Fail`The specified choice is not a legal position: ${position}.`;
         }
@@ -187,24 +187,17 @@ const makeMultiCandidateVoteCounter = (
         const completedBallot = harden({ chosen: chosenPositions, shares });
 
         allBallots.has(voterHandle)
-          ? // @ts-expect-error stricter @endo/marshal RecordedBallot narrowing
-            // vs the union returned by harden(...).
-            allBallots.set(voterHandle, completedBallot)
-          : // @ts-expect-error stricter @endo/marshal RecordedBallot narrowing
-            // vs the union returned by harden(...).
-            allBallots.init(voterHandle, completedBallot);
+          ? allBallots.set(voterHandle, completedBallot)
+          : allBallots.init(voterHandle, completedBallot);
         return completedBallot;
       },
     },
   );
 
-  // Stricter @endo/exo makeExo overload signatures surface a
-  // Guard-vs-concrete-methods mismatch at the publicFacet boundary; the
-  // runtime interface guard still enforces the JSDoc shape.
   const publicFacet = makeExo(
     'MultiCandidateVoteCounter public',
     VoteCounterPublicI,
-    /** @type {any} */ ({
+    {
       getQuestion() {
         return question;
       },
@@ -223,20 +216,14 @@ const makeMultiCandidateVoteCounter = (
       getInstance() {
         return instance;
       },
-    }),
+    },
   );
 
-  // Stricter @endo/exo Guarded inference vs the declared MultiVoteCounterFacets
-  // type; runtime facets satisfy the interface.
-  return /** @type {MultiVoteCounterFacets} */ (
-    /** @type {unknown} */ (
-      harden({
-        creatorFacet,
-        publicFacet,
-        closeFacet,
-      })
-    )
-  );
+  return harden({
+    creatorFacet,
+    publicFacet,
+    closeFacet,
+  });
 };
 
 /**

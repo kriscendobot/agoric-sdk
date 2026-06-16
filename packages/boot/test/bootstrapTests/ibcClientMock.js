@@ -38,8 +38,6 @@ export const start = async (_zcf, privateArgs, _baggage) => {
       log('connect', remote);
       // don't return the promise.
       // We want to test a promise that lasts across cranks.
-      // @ts-expect-error stricter @endo/eventual-send EMethods inference
-      // narrows E(...) return; Port's connect is reachable at runtime.
       connP = E(myPort).connect(
         remote,
 
@@ -54,8 +52,6 @@ export const start = async (_zcf, privateArgs, _baggage) => {
     getAck: () => E.when(ackP),
     close: () => E(connP).close(),
     getLocalAddress: async () => {
-      // @ts-expect-error stricter @endo/eventual-send EMethods inference
-      // narrows E(...) return; Port's getLocalAddress is reachable at runtime.
       return E(myPort).getLocalAddress();
     },
   });

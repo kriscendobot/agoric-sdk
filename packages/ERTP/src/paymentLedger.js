@@ -9,7 +9,7 @@ import { BrandI, makeIssuerInterfaces } from './typeGuards.js';
 /**
  * @import {Key, Pattern} from '@endo/patterns';
  * @import {Zone} from '@agoric/base-zone';
- * @import {TypedPattern} from '@agoric/internal';
+ * @import {CastedPattern} from '@endo/patterns';
  * @import {ShutdownWithFailure} from '@agoric/swingset-vat';
  * @import {AmountStore} from './amountStore.js';
  * @import {Amount, AssetKind, DisplayInfo, PaymentLedger, Payment, Brand, RecoverySetsOption, Purse, Issuer, Mint} from './types.js';
@@ -22,7 +22,7 @@ import { BrandI, makeIssuerInterfaces } from './typeGuards.js';
  * @param {Brand} brand
  * @param {K} assetKind
  * @param {Pattern} elementShape
- * @returns {TypedPattern<Amount<K>>}
+ * @returns {CastedPattern<Amount<K>>}
  */
 const amountShapeFromElementShape = (brand, assetKind, elementShape) => {
   let valueShape;
@@ -204,9 +204,8 @@ export const preparePaymentLedger = (
     }
   };
 
-  /** @type {(allegedAmount: Amount) => Amount} */
+  /** @type {<K extends AssetKind>(allegedAmount: Amount<K>) => Amount<K>} */
   const coerce = allegedAmount => AmountMath.coerce(brand, allegedAmount);
-  /** @type {(left: Amount, right: Amount) => boolean} */
 
   /**
    * Methods like deposit() have an optional second parameter `optAmountShape`
@@ -376,8 +375,6 @@ export const preparePaymentLedger = (
       return issuer;
     },
     mintPayment(newAmount) {
-      // @ts-expect-error stricter @endo/marshal Passable narrowing surfaces
-      // an Amount vs Amount<K, Key> covariance mismatch at coerce(...).
       newAmount = coerce(newAmount);
       mustMatch(newAmount, amountShape, 'minted amount');
       // `rawPayment` is not associated with any recovery set, and

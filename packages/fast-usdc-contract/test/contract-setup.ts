@@ -103,8 +103,6 @@ const startContract = async (
     installation,
     { USDC: usdc.issuer },
     { usdcDenom: uusdcOnAgoric },
-    // contract expects CosmosChainInfo with bech32 prefix, but the
-    // orchestration test setup omits it.
     commonPrivateArgs,
   );
 

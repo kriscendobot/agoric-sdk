@@ -98,6 +98,7 @@ test('portfolio holder kit behaviors', async t => {
   t.is(
     delegateInv,
     // note: mocked zcf (we are not in a contract) returns inv description
+    // @ts-expect-error Argument of type 'string' is not assignable to parameter of type 'Vow<any>'
     'Delegate',
     'any invitation maker accessible via Proxying',
   );
@@ -110,6 +111,7 @@ test('portfolio holder kit behaviors', async t => {
   t.is(
     transferInv,
     // note: mocked zcf (we are not in a contract) returns inv description
+    // @ts-expect-error Argument of type 'string' is not assignable to parameter of type 'Vow<any>'
     'Transfer',
     'invitationArgs are optional',
   );

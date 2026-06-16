@@ -72,7 +72,7 @@ export const prepareLogStore = zone => {
   const entryIsVisible = entry => entry[0] !== 'startGeneration';
 
   /**
-   * @type {Ephemera<LogStore, {
+   * @type {Ephemera<any, {
    *           index: number;
    *           unfilteredIndex: number;
    *           initialPush: LogEntry[] | undefined;
@@ -114,9 +114,6 @@ export const prepareLogStore = zone => {
     {
       reset() {
         const { self } = this;
-        // @ts-expect-error exo guard narrowing: `self` is typed as
-        // `Guarded<{...}>`; `tmp` is keyed on the hand-written `LogStore`
-        // typedef. Runtime identity is the same exo instance.
         tmp.resetFor(self);
 
         // TODO: Should we resolve replayDoneKit here, in case we're
@@ -127,20 +124,17 @@ export const prepareLogStore = zone => {
         const { state, self } = this;
         const { mapStore } = state;
 
-        // @ts-expect-error exo guard narrowing: see reset() above.
         tmp.resetFor(self);
         mapStore.clear();
       },
       getUnfilteredIndex() {
         const { self } = this;
-        // @ts-expect-error exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         return eph.unfilteredIndex;
       },
       getIndex() {
         const { self } = this;
-        // @ts-expect-error exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         return eph.index;
@@ -154,7 +148,6 @@ export const prepareLogStore = zone => {
       isReplaying() {
         const { state, self } = this;
         const { mapStore } = state;
-        // @ts-expect-error exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         return eph.unfilteredIndex < mapStore.getSize();
@@ -165,7 +158,6 @@ export const prepareLogStore = zone => {
       peekEntry() {
         const { state, self } = this;
         const { mapStore } = state;
-        // @ts-expect-error exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         self.isReplaying() ||
@@ -180,21 +172,16 @@ export const prepareLogStore = zone => {
        */
       nextUnfilteredEntry() {
         const { self } = this;
-        // @ts-expect-error exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
-        const result = self.peekEntry();
+        const result = /** @type {LogEntry} */ (self.peekEntry());
         eph.unfilteredIndex += 1;
-        // @ts-expect-error exo guard narrowing: peekEntry() return narrows to
-        // a union; entryIsVisible accepts LogEntry.
         if (entryIsVisible(result)) {
           eph.index += 1;
         }
         if (!self.isReplaying()) {
           eph.replayDoneKit.resolve(undefined);
         }
-        // @ts-expect-error exo guard narrowing: result narrows to a union;
-        // the method declares LogEntry per the JSDoc @returns.
         return result;
       },
       /**
@@ -202,12 +189,10 @@ export const prepareLogStore = zone => {
        */
       nextEntry() {
         const { self } = this;
-        let result = self.nextUnfilteredEntry();
-        // @ts-expect-error exo guard narrowing: nextUnfilteredEntry return
-        // narrows to a union; entryIsVisible accepts LogEntry.
+        let result = /** @type {LogEntry} */ (self.nextUnfilteredEntry());
         while (!entryIsVisible(result)) {
           self.isReplaying() || Fail`Unexpected entry at log tail: ${result}`;
-          result = self.nextUnfilteredEntry();
+          result = /** @type {LogEntry} */ (self.nextUnfilteredEntry());
         }
         return result;
       },
@@ -218,7 +203,6 @@ export const prepareLogStore = zone => {
         const { state, self } = this;
 
         const { mapStore } = state;
-        // @ts-expect-error exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         !self.isReplaying() ||
@@ -271,7 +255,6 @@ export const prepareLogStore = zone => {
       },
       promiseReplayDone() {
         const { self } = this;
-        // @ts-expect-error exo guard narrowing: see reset() above.
         const eph = tmp.for(self);
 
         return eph.replayDoneKit.promise;
@@ -281,18 +264,5 @@ export const prepareLogStore = zone => {
 };
 
 /**
- * @typedef {object} LogStore
- * @property {() => void} reset
- * @property {() => void} dispose
- * @property {() => number} getUnfilteredIndex
- * @property {() => number} getIndex
- * @property {() => number} getLength
- * @property {() => boolean} isReplaying
- * @property {() => LogEntry} peekEntry
- * @property {() => LogEntry} nextEntry
- * @property {() => LogEntry} nextUnfilteredEntry
- * @property {(entry: LogEntry) => number} pushEntry
- * @property {() => LogEntry[]} dumpUnfiltered
- * @property {() => LogEntry[]} dump
- * @property {() => Promise<undefined>} promiseReplayDone
+ * @typedef {ReturnType<ReturnType<typeof prepareLogStore>>} LogStore
  */

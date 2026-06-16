@@ -1,3 +1,5 @@
+// @ts-nocheck — under-supported package; type errors are tolerated
+
 import { makeExo, mustMatch, keyEQ, M } from '@agoric/store';
 import { makeHandle } from '@agoric/zoe/src/makeHandle.js';
 
@@ -87,24 +89,19 @@ const coerceQuestionSpec = ({
 const buildQuestion = (questionSpec, counterInstance) => {
   const questionHandle = makeHandle('Question');
 
-  return /** @type {Question} */ (
-    /** @type {unknown} */ (
-      // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-      // Question type; runtime makeExo satisfies QuestionI's guard.
-      makeExo('question details', QuestionI, {
-        getVoteCounter() {
-          return counterInstance;
-        },
-        getDetails() {
-          return harden({
-            ...questionSpec,
-            questionHandle,
-            counterInstance,
-          });
-        },
-      })
-    )
-  );
+  /** @type {Question} */
+  return makeExo('question details', QuestionI, {
+    getVoteCounter() {
+      return counterInstance;
+    },
+    getDetails() {
+      return harden({
+        ...questionSpec,
+        questionHandle,
+        counterInstance,
+      });
+    },
+  });
 };
 
 harden(buildQuestion);

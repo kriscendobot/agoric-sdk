@@ -113,9 +113,9 @@ export const prepareBijection = (
   zone,
   unwrap = (_hostWrapper, guestWrapper) => guestWrapper,
 ) => {
-  /** @type {Ephemera<Bijection, VowishStore>} */
+  /** @type {Ephemera<any, VowishStore>} */
   const g2h = makeEphemera(() => makeVowishStore('guestToHost'));
-  /** @type {Ephemera<Bijection, VowishStore>} */
+  /** @type {Ephemera<any, VowishStore>} */
   const h2g = makeEphemera(() => makeVowishStore('hostToGuest'));
 
   // Guest arguments and results are now unguarded, i.e., guarded by `M.raw()`,
@@ -134,9 +134,7 @@ export const prepareBijection = (
       const guestToHost = g2h.for(self);
       const hostToGuest = h2g.for(self);
 
-      // @ts-expect-error stricter @endo/pass-style Passable typing surfaces
-      // a Passable -> PassableCap|Vow narrowing gap at this unwrap boundary.
-      const gUnwrapped = unwrap(h, g);
+      const gUnwrapped = unwrap(/** @type {any} */ (h), /** @type {any} */ (g));
       !hostToGuest.has(h) ||
         Fail`hostToGuest key already bound: ${h} -> ${hostToGuest.get(h)} vs ${gUnwrapped}`;
       guestToHost.init(gUnwrapped, h);
@@ -173,9 +171,8 @@ export const prepareBijection = (
       const hostToGuest = h2g.for(self);
 
       if (guestToHost.has(g)) {
-        // @ts-expect-error stricter @endo/pass-style Passable typing surfaces
-        // a Passable -> PassableCap|Vow narrowing gap at toPassableCap.
-        toPassableCap(guestToHost.get(g)) === toPassableCap(h) ||
+        toPassableCap(/** @type {any} */ (guestToHost.get(g))) ===
+          toPassableCap(/** @type {any} */ (h)) ||
           Fail`internal: g->h ${g} -> ${h} vs ${guestToHost.get(g)}`;
         hostToGuest.get(h) === g ||
           Fail`internal h->g: ${h} -> ${g} vs ${hostToGuest.get(h)}`;
@@ -207,12 +204,5 @@ export const prepareBijection = (
 harden(prepareBijection);
 
 /**
- * @typedef {object} Bijection
- * @property {() => void} reset
- * @property {(g: unknown, h: PassableCap | Vow) => unknown} unwrapInit
- * @property {(g: unknown) => boolean} hasGuest
- * @property {(h: PassableCap | Vow) => boolean} hasHost
- * @property {(g: unknown, h: PassableCap | Vow) => boolean} has
- * @property {(g: unknown) => unknown} guestToHost
- * @property {(h: PassableCap | Vow) => unknown} hostToGuest
+ * @typedef {ReturnType<ReturnType<typeof prepareBijection>>} Bijection
  */

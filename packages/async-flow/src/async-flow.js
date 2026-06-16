@@ -13,6 +13,7 @@ import { LogEntryShape, FlowStateShape } from './type-guards.js';
 /**
  * @import {WeakMapStore, MapStore} from '@agoric/store'
  * @import {Zone} from '@agoric/base-zone'
+ * @import {Vow} from '@agoric/vow'
  * @import {FlowState, GuestAsyncFunc, HostAsyncFuncWrapper, HostOf, PreparationOptions} from '../src/types.js'
  * @import {ReplayMembrane} from '../src/replay-membrane.js'
  */
@@ -191,11 +192,10 @@ export const prepareAsyncFlowTools = (outerZone, outerOptions = {}) => {
                 Fail`wakeWatcher must be storable in this zone (usually, must be durable): ${wakeWatcher}`;
               watch(vowish, wakeWatcher);
             };
-            const panic = err => admin.panic(err);
+            const panic = /** @type {(problem: Error) => never} */ (
+              err => admin.panic(err)
+            );
             const membrane = makeReplayMembrane({
-              // @ts-expect-error exo guard narrowing: `log` is typed as
-              // `LogStore | Guarded<{...}>`; `makeReplayMembrane` expects
-              // the hand-written `LogStore` typedef. Runtime is the same.
               log,
               bijection,
               vowTools,
@@ -410,7 +410,9 @@ export const prepareAsyncFlowTools = (outerZone, outerOptions = {}) => {
             if (eagerWakers.has(flow)) {
               eagerWakers.delete(flow);
             }
-            flowForOutcomeVowKey.delete(toPassableCap(flow.getOutcome()));
+            flowForOutcomeVowKey.delete(
+              toPassableCap(/** @type {Vow} */ (flow.getOutcome())),
+            );
             state.isDone = true;
             log.dispose();
             flow.getFlowState() === 'Done' ||
@@ -472,7 +474,7 @@ export const prepareAsyncFlowTools = (outerZone, outerOptions = {}) => {
       const asyncFlowKit = internalMakeAsyncFlowKit(activationArgs);
       const { flow } = asyncFlowKit;
 
-      const vow = flow.getOutcome();
+      const vow = /** @type {Vow} */ (flow.getOutcome());
       flowForOutcomeVowKey.init(toPassableCap(vow), flow);
       flow.restart();
       return asyncFlowKit;
@@ -506,27 +508,28 @@ export const prepareAsyncFlowTools = (outerZone, outerOptions = {}) => {
     return harden(wrapperFunc);
   };
 
-  // @ts-expect-error stricter @endo/exo exoClass overload signatures
-  // surface a Guard-vs-concrete-methods mismatch at this call site.
-  const adminAsyncFlow = outerZone.exo('AdminAsyncFlow', AdminAsyncFlowI, {
-    getFailures() {
-      return failures.snapshot();
-    },
-    wakeAll() {
-      // [...stuff.keys()] in order to snapshot before iterating
-      const failuresToRestart = [...failures.keys()];
-      const flowsToWake = [...eagerWakers.keys()];
-      for (const flow of failuresToRestart) {
-        flow.restart();
-      }
-      for (const flow of flowsToWake) {
-        flow.wake();
-      }
-    },
-    getFlowForOutcomeVow(outcomeVow) {
-      return flowForOutcomeVowKey.get(toPassableCap(outcomeVow));
-    },
-  });
+  const adminAsyncFlow =
+    // @ts-expect-error AdminAsyncFlow guard uses M.raw() defaults
+    outerZone.exo('AdminAsyncFlow', AdminAsyncFlowI, {
+      getFailures() {
+        return failures.snapshot();
+      },
+      wakeAll() {
+        // [...stuff.keys()] in order to snapshot before iterating
+        const failuresToRestart = [...failures.keys()];
+        const flowsToWake = [...eagerWakers.keys()];
+        for (const flow of failuresToRestart) {
+          flow.restart();
+        }
+        for (const flow of flowsToWake) {
+          flow.wake();
+        }
+      },
+      /** @param {Vow} outcomeVow */
+      getFlowForOutcomeVow(outcomeVow) {
+        return flowForOutcomeVowKey.get(toPassableCap(outcomeVow));
+      },
+    });
 
   // Cannot call this until everything is prepared, so postpone to a later
   // turn. (Ideally, we'd postpone to a later crank because prepares are

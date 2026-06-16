@@ -108,19 +108,16 @@ export const provideMakePrivateArgs = (
 
   const makePrivateArgs = (
     privateArgOverrides: Partial<PortfolioPrivateArgs> = {},
-  ): PortfolioPrivateArgs =>
-    // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-    // PortfolioPrivateArgs shape; runtime values satisfy the contract guards.
-    ({
-      ...commonPrivateArgs,
-      axelarIds: axelarIdsMock,
-      contracts: contractsMock,
-      walletBytecode: '0x1234',
-      gmpAddresses,
-      timerService,
-      chainInfo,
-      ...privateArgOverrides,
-    });
+  ): PortfolioPrivateArgs => ({
+    ...commonPrivateArgs,
+    axelarIds: axelarIdsMock,
+    contracts: contractsMock,
+    walletBytecode: '0x1234',
+    gmpAddresses,
+    timerService,
+    chainInfo,
+    ...privateArgOverrides,
+  });
 
   return makePrivateArgs;
 };

@@ -397,8 +397,6 @@ export const makeChainStorage = async ({
     STORAGE_PATH.CUSTOM,
     { sequence: true },
   );
-  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-  // ERef<Remote<StorageNode> | null> parameter; runtime value satisfies guard.
   chainStorageP.resolve(rootNodeP);
 };
 
@@ -437,8 +435,6 @@ export const produceHighPrioritySendersManager = async ({
    * updated with the new object, which can be done with an upgrade (regular or
    * null) with the new object in privateArgs.
    */
-  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-  // ERef<StorageNode> parameter; runtime value satisfies the interface guard.
   const manager = makePrioritySendersManager(sendersNode);
 
   managerP.resolve(manager);

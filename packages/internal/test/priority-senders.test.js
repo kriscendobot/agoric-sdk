@@ -10,8 +10,6 @@ test('basic', async t => {
   const storage = makeFakeStorageKit(HIGH_PRIORITY_SENDERS, {
     sequence: false,
   });
-  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-  // ERef<StorageNode> parameter; the runtime node satisfies the guard.
   const manager = makePrioritySendersManager(storage.rootNode);
 
   const nodeEquals = async (
@@ -45,8 +43,6 @@ test('errors', async t => {
   const storage = makeFakeStorageKit(HIGH_PRIORITY_SENDERS, {
     sequence: false,
   });
-  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-  // ERef<StorageNode> parameter; the runtime node satisfies the guard.
   const manager = makePrioritySendersManager(storage.rootNode);
 
   t.throws(() => manager.remove('oracles', 'agoric1a'), {
@@ -67,8 +63,6 @@ test('normalization', async t => {
   const storage = makeFakeStorageKit(HIGH_PRIORITY_SENDERS, {
     sequence: false,
   });
-  // @ts-expect-error stricter @endo/exo Guarded inference vs the declared
-  // ERef<StorageNode> parameter; the runtime node satisfies the guard.
   const manager = makePrioritySendersManager(storage.rootNode);
 
   await manager.add('something with spaces', 'addr');
