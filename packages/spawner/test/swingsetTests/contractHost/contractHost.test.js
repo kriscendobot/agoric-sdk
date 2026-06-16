@@ -14,6 +14,7 @@ test.before(async t => {
   const kernelBundles = await buildKernelBundles();
   const trivialFn = path.resolve(dirname, 'trivial.js');
   const trivialBundle = await bundleSource(trivialFn);
+  // @ts-expect-error t.context is `unknown` under wrapTest's TestFn
   t.context.data = { kernelBundles, trivialBundle };
 });
 
