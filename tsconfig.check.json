@@ -23,6 +23,7 @@
     "exclude": [
         "a3p-integration", // vendored package problems
         "multichain-testing", // not relevant for coding loop (and noble-usdn-lab.ts is very slow)
+        "packages/swingset-runner/demo", // demo vats not type-clean upstream either; matches upstream's swingset-runner exclude
         "**/build",
         "**/bundles",
         "**/coverage",

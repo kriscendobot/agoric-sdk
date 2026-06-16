@@ -24,34 +24,36 @@ function rimraf(dirPath) {
 }
 
 async function innerTest(t, extraFlags, dbdir) {
-  await new Promise(resolve => {
-    const appDir = 'demo/encouragementBot';
-    if (dbdir) {
-      dbdir = `${appDir}/${dbdir}`;
-      extraFlags += ` --dbdir ${dbdir}`;
-    }
-    const proc = spawn(`node bin/runner ${extraFlags} run ${appDir}`, {
-      cwd: path.resolve(dirname, '..'),
-      shell: true,
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
-    let output = '';
-    proc.stdout.addListener('data', data => {
-      output += data;
-    });
-    proc.addListener('exit', code => {
-      t.log(output);
-      t.is(code, 0, 'exits successfully');
-      const uMsg = 'user vat is happy';
-      t.not(output.indexOf(`\n${uMsg}\n`), -1, uMsg);
-      const bMsg = 'bot vat is happy';
-      t.not(output.indexOf(`\n${bMsg}\n`), -1, bMsg);
-      resolve();
+  await /** @type {Promise<void>} */ (
+    new Promise(resolve => {
+      const appDir = 'demo/encouragementBot';
       if (dbdir) {
-        rimraf(dbdir);
+        dbdir = `${appDir}/${dbdir}`;
+        extraFlags += ` --dbdir ${dbdir}`;
       }
-    });
-  });
+      const proc = spawn(`node bin/runner ${extraFlags} run ${appDir}`, {
+        cwd: path.resolve(dirname, '..'),
+        shell: true,
+        stdio: ['ignore', 'pipe', 'inherit'],
+      });
+      let output = '';
+      proc.stdout.addListener('data', data => {
+        output += data;
+      });
+      proc.addListener('exit', code => {
+        t.log(output);
+        t.is(code, 0, 'exits successfully');
+        const uMsg = 'user vat is happy';
+        t.not(output.indexOf(`\n${uMsg}\n`), -1, uMsg);
+        const bMsg = 'bot vat is happy';
+        t.not(output.indexOf(`\n${bMsg}\n`), -1, bMsg);
+        resolve();
+        if (dbdir) {
+          rimraf(dbdir);
+        }
+      });
+    })
+  );
 }
 
 test('run encouragmentBot demo with memdb', async t => {
