@@ -60,7 +60,7 @@
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.26.1",
     "@typescript-eslint/parser": "^8.26.1",
-    "ava": "^6.2.0",
+    "ava": "^7.0.0",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.1",
     "execa": "^9.5.2",
@@ -154,7 +154,8 @@
     "@endo/eventual-send@npm:^1.4.0": "npm:^1.5.0",
     "@endo/pass-style@npm:^1.6.3": "npm:^1.8.1",
     "@endo/pass-style@npm:^1.7.0": "npm:^1.8.1",
-    "@endo/marshal@npm:^1.9.0": "npm:^1.10.0"
+    "@endo/marshal@npm:^1.9.0": "npm:^1.10.0",
+    "ava@npm:^6 || ^7 || ^8": "npm:^7.0.0"
   },
   "license": "Apache-2.0"
 }
