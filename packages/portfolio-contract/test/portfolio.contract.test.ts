@@ -2700,6 +2700,10 @@ test('evmHandler.setAutoFeatures enables planner-initiated rebalance', async t =
 
     const autoFeatureStatus = await evmTrader
       .forChain(inputs.fromChain)
+      // @ts-expect-error setAutoFeatures method exists upstream
+      // (Agoric#12726 51512cf525) but its producer side has not yet been
+      // absorbed onto this branch; the consumer-side test was absorbed by
+      // aee8f7a92c.
       .setAutoFeatures({ rebalance: true });
     t.is(autoFeatureStatus.status, 'ok', `${label} auto-feature message ok`);
 

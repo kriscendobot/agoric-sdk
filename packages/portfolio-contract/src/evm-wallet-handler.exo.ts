@@ -393,11 +393,17 @@ export const prepareEVMPortfolioOperationManager = (
 
             return watch(result, BasicOutcomeWatcher);
           }
+          // @ts-expect-error SetAutoFeatures producer-side types (EIP-712
+          // schema entry and PortfolioAutoFeatures type) live in upstream
+          // commits (Agoric#12726 51512cf525 et al.) not yet absorbed onto
+          // this branch; the consumer-side case was absorbed by aee8f7a92c.
           case 'SetAutoFeatures': {
             const {
               data: { features },
             } = operationDetails;
 
+            // @ts-expect-error portfolio facet method introduced upstream;
+            // delegation infrastructure not yet absorbed.
             const result = E(portfolio!).setAutoFeatures(features);
 
             return watch(result, BasicOutcomeWatcher);
