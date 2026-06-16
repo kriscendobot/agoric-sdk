@@ -8,7 +8,11 @@ const oldExt = anylogger.ext;
  * @param {Record<string, unknown>} logger
  * @param {...unknown} rest
  */
+// @ts-expect-error Adapter signature accepts a LogFunction but vendor
+// override extends with additional sink wiring.
 anylogger.ext = (logger, ...rest) => {
+  // @ts-expect-error oldExt is typed as Adapter (logfn) => Logger; legacy
+  // wiring forwards the wider (logger, ...rest) tuple intentionally.
   const extended = oldExt(logger, ...rest);
   const fallbackSink = console.log.bind(console);
 

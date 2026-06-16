@@ -30,6 +30,11 @@ defaults to the current working directory.
 `);
 }
 
+/**
+ * @param {string} message
+ * @param {boolean} printUsage
+ * @returns {never}
+ */
 function fail(message, printUsage) {
   console.log(message);
   if (printUsage) {
@@ -52,7 +57,7 @@ function dirContains(dirpath, suffix) {
   }
 }
 
-export function main() {
+export async function main() {
   const argv = process.argv.slice(2);
   let rawMode = false;
   let refCounts = false;
@@ -103,7 +108,8 @@ export function main() {
     }
   }
 
-  const target = argv.shift();
+  const target = argv.shift() || '.';
+  /** @type {string | null} */
   let kernelStateDBDir;
   const dbSuffix = '.mdb';
   if (target.endsWith(dbSuffix)) {
@@ -121,7 +127,9 @@ export function main() {
   }
   const kernelStorage = openSwingStore(kernelStateDBDir).kernelStorage;
   if (justStats) {
-    const rawStats = JSON.parse(kernelStorage.kvStore.get('kernelStats'));
+    const rawStats = JSON.parse(
+      kernelStorage.kvStore.get('kernelStats') || '{}',
+    );
     const cranks = Number(kernelStorage.kvStore.get('crankNumber'));
     printMainStats(organizeMainStats(rawStats, cranks));
   } else {

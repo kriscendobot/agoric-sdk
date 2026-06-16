@@ -249,7 +249,9 @@ export async function main() {
   let shouldPrintStats = false;
   let launchIndirectly = false;
   let benchmarkRounds = 0;
+  /** @type {string | null | undefined} */
   let configPath = null;
+  /** @type {string | null | undefined} */
   let statsFile = null;
   let dbDir;
   let initOnly = false;
@@ -257,6 +259,7 @@ export async function main() {
   let useBundleCache = false;
   let activityHash = false;
   let emulateChain = false;
+  /** @type {string | null | undefined} */
   let swingsetBenchmarkDriverPath = null;
   /** @type {string | undefined} */
   let cpuProfileFilePath;
@@ -487,7 +490,7 @@ export async function main() {
     config = loadBasedir(basedir);
   }
   if (config.bundleCachePath) {
-    const base = new URL(configPath, `file://${process.cwd()}/`);
+    const base = new URL(configPath || '.', `file://${process.cwd()}/`);
     config.bundleCachePath = new URL(config.bundleCachePath, base).pathname;
   } else if (useBundleCache) {
     config.bundleCachePath = path.join(basedir, 'bundles');
@@ -623,6 +626,7 @@ export async function main() {
   }
 
   let blockNumber = 0;
+  /** @type {ReturnType<typeof makeStatLogger> | null} */
   let statLogger = null;
   if (logTimes || logMem || logDisk) {
     let headers = ['block', 'steps'];
@@ -757,7 +761,7 @@ export async function main() {
   /**
    * @param {string} method
    * @param {Partial<{samplingInterval: number}>} [parameters]
-   * @returns {object}
+   * @returns {Promise<any>}
    */
   function postToInspector(method, parameters = {}) {
     return new Promise((resolve, reject) =>

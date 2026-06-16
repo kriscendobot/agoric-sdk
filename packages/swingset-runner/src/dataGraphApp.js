@@ -63,14 +63,15 @@ function fail(message, printUsage, showFields) {
 export async function dataGraphApp(xField, xLabel, yField, yLabel, fields) {
   const argv = process.argv.slice(2);
 
-  let outfile = null;
+  /** @type {string | undefined} */
+  let outfile;
   const datafiles = [];
   const tags = [];
   let type = 'png';
 
   const expectFields = !fields;
   while (argv[0]) {
-    const arg = argv.shift();
+    const arg = /** @type {string} */ (argv.shift());
     if (arg.startsWith('-')) {
       switch (arg) {
         case '--output':
@@ -91,10 +92,11 @@ export async function dataGraphApp(xField, xLabel, yField, yLabel, fields) {
         case '--fields':
         case '-f':
           if (expectFields) {
-            fields = argv.shift().split(',');
-            break;
+            fields = /** @type {string} */ (argv.shift()).split(',');
+          } else {
+            fail(`invalid flag ${arg}`, true, expectFields);
           }
-        // note fall through to error
+          break;
         default:
           fail(`invalid flag ${arg}`, true, expectFields);
       }
