@@ -150,6 +150,16 @@ the precise `flatMap` call site. The contract's *own* module-body `flatMap`s
 single-/double-digit arrays — two orders of magnitude too small — so the wide
 flatMap is in the bundle's module-linking layer, not contract source.
 
+> **Correction (resolved below, § Smoking-gun).** The "module-linking layer"
+> attribution above was the best inference available from the minified `:21`/`:22`
+> line alone. The follow-up patch experiment names the exact call site: the wide
+> `flatMap` is **`@agoric/internal/src/hex.js`**'s `decodings = new Map(encodings.flatMap(...))`,
+> a *bundled dependency* inlined into `portfolio.contract.bundle.js`. It is inside
+> the contract bundle (so reachable by a contract re-bundle), not the bundler's
+> own link-helper layer. The ~1,986-closure slice is the flattened module functor;
+> the hex builder contributes the ~1,024 *reference* operands of the flattened
+> 4×256 pair array. Patching only that one `flatMap` clears the overflow.
+
 ### Controls
 
 - **Trivial bundle** → OK, no overflow (the named walk does not fire, confirming
@@ -158,3 +168,99 @@ flatMap is in the bundle's module-linking layer, not contract source.
   overflows: the controlling variable is the **bundle's** flattened module width
   fixed at bundle time, not the runtime Endo set. The clean control is a contract
   **re-bundled** against beta2 (narrower module scope), per §earlier rounds.
+
+## Smoking-gun confirmation: `flatMap`→loop in the bundled hex codec, on the stock 4096-slot stack
+
+Carries forward kriskowal's directive on garden issue #9 ("patch ses, replace
+`flatMap` with an ordinary loop, verify that this addresses the problem, and
+restore the stack size limit"). The decisive control isolates a *single*
+expression and changes **nothing else** — same real v320 `bundle-ymax0`
+(`endoZipBase64`), same beta3 SES/`importBundle` setup, and the **stock prebuilt
+`xsnap-worker` 0.14.2** (value stack fixed at the on-chain default
+`stackCount = 4096` — no recompiled taller stack).
+
+### Result
+
+| real v320 `bundle-ymax0` | XS stock 4096-slot worker (`importBundle`) |
+| --- | --- |
+| **unpatched** | **STACK_OVERFLOW** — exit 12 (the production `exited: stack overflow` signature) |
+| **`flatMap`→loop patched** | **OK** — imports to the full export set |
+
+The patched import settles to the identical export set V8 produces, read back
+through a thrown sentinel so it genuinely *completes* (not merely "does not
+crash"):
+
+```
+AxelarConfigShape, contract, extractEvmRemoteAccountConfig,
+makeEip155ChainIdToAxelarChain, meta, privateArgsShape, start
+```
+
+Independently reproduced on host 2026-06-28 (`/tmp/xs6/import-any.mjs` →
+`STACK_OVERFLOW` for the control, `OK` for the patch; `verify-patched.mjs` →
+the seven exports above).
+
+### The exact patch — one file, no behavior change
+
+The marginal `flatMap` is **`@agoric/internal/src/hex.js`**'s decode-table builder.
+It is inlined into the contract bundle (minified `RI`/`P_` below; source on the
+right), so it ships as a **contract re-bundle**, not a chain software upgrade:
+
+```js
+// before (minified in bundle):
+P_ = new Map(RI.flatMap((e,t) => {                 // 256 * 4 = 1024 pair sub-arrays
+  const r = e.toLowerCase(), o = e.toUpperCase();  // all live as operands while `new Map` drains them
+  return [[r,t], [`${r[0]}${o[1]}`,t], [`${o[0]}${r[1]}`,t], [o,t]];
+}));
+
+// after — set straight into the Map; the 1024-element array is never materialized:
+P_ = (() => {
+  const m = new Map();
+  for (let t = 0; t < RI.length; t += 1) {
+    const e = RI[t], r = e.toLowerCase(), o = e.toUpperCase();
+    m.set(r,t); m.set(`${r[0]}${o[1]}`,t); m.set(`${o[0]}${r[1]}`,t); m.set(o,t);
+  }
+  return m;
+})();
+```
+
+In source terms, `const decodings = new Map(encodings.flatMap(...))` becomes a
+loop that `.set()`s the four lower/upper permutations per byte directly —
+functionally a byte-identical `Map` (validated on V8: 484 entries, round-trips
+`ff`/`0A`/`aB`).
+
+### Bundle-level corroboration
+
+Decoding both `endoZipBase64` bundles and diffing the flattened
+`@aglocal/portfolio-deploy/dist/portfolio.contract.bundle.js`:
+
+- `.flatMap(` call sites: **10 (control) → 9 (patched)** — exactly the hex one
+  removed; the other nine `flatMap`s are over single-/double-digit arrays and were
+  left untouched (and the import still goes green, so the hex builder, not those,
+  was the marginal contributor).
+- The patched entry now carries a `new Map` + `for`-loop + `.set(`/`toLowerCase`
+  construct where the control carried the `flatMap`.
+
+### Why this resolves the "next lever" above
+
+This **names the call site** the instrumentation round could only place at the
+minified `:21`/`:22` line: the wide activation is `Array.prototype.flatMap` invoked
+by `@agoric/internal/src/hex.js`, a bundled dependency *inside* the contract
+bundle. Two levers clear the overflow; this one needs no chain software upgrade:
+
+- **taller XS stack** (`stackCount` 4096 → 4224+) — needs a chain software upgrade
+  (supervisor rebuild); the v320 deficit is a thin ~128 slots, so 4224 already
+  clears it (see § earlier bisection rounds);
+- **`flatMap`→loop in the bundled `@agoric/internal` hex codec** — needs only a
+  contract re-bundle; drops ~1,024 reference slots from the peak, clearing the
+  stock stack with comfortable margin.
+
+### Residual structural caveat
+
+This removes the ~1,024-reference hex frame but leaves the **structural** baseline
+unchanged: the esbuild-flattened single-functor bundle still holds ~2,000
+persistent closure slots co-resident on the value stack. A future
+Endo/dependency bump that widens the module scope by another ~1,000 symbols could
+re-trip the stock stack even with this fix. The durable structural remedy remains
+"emit sub-modules as their own functors so their link closures are not all
+co-resident" (a `bundle-source`/esbuild lever), which this experiment does not
+address.
