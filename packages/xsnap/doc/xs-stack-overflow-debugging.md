@@ -264,3 +264,84 @@ re-trip the stock stack even with this fix. The durable structural remedy remain
 "emit sub-modules as their own functors so their link closures are not all
 co-resident" (a `bundle-source`/esbuild lever), which this experiment does not
 address.
+
+## Symbolicated source-line trace + beta2/beta3 side-by-side (round 4)
+
+The "minified onto a couple of lines, can't map `:21` to a construct" limit above
+is lifted for a **non-minified** bundle by one more instrumentation fix, plus the
+clean re-bundled control is run end to end.
+
+### Fix: unwrap XS's 16-bit source line
+
+XS stores the source line in 16 bits, so any line past 32767 — routine in a large
+non-minified esbuild bundle (the ymax0 `portfolio.contract.bundle.js` is ~43,886
+lines) — reads back as a **negative** `txInteger`. The `XS_STACK_OVERFLOW_EXIT`
+frame walk now unwraps negatives by `+65536` (xsnap-pub `debug/xs-stack-overflow-trace`,
+commit `3e6c632`), so each overflow frame resolves to its real 1-based line.
+Minified bundles stay small and are unaffected (the production bundle still reads
+`:21`/`:22`).
+
+### Symbolicated overflow trace — beta3 Endo, non-minified bundle (stackCount=4096)
+
+```
+value stack: 4096 of 4096 slots used (0 free)
+depth slots kind  jsname @ source:line
+#0   1253 J  (anonymous-6257) @ portfolio.contract.bundle.js:37749   <- [lo, b2],  (inside the flatMap callback)
+#1   2575 C  Array.prototype.flatMap @ (no-source):0
+#2     15 J  (anonymous-2502) @ portfolio.contract.bundle.js:37745   <- encodings.flatMap((hexdigits, b2) => {
+#3     21 J  (anonymous-2501) @ portfolio.contract.bundle.js:43845   <- export { ... }  (module top-level functor)
+#4     18 J  execute @ #0:12175
+#5     13 J  compartmentImportNow @ #0:12497
+#6      8 J  Compartment.prototype.(anonymous-1545) @ #0:12552
+#7     10 C  @fxOnResolvedPromise @ (no-source):0
+#8    161 C  (host)
+frame#0 span=1253: REFERENCE=1247 <- portfolio.contract.bundle.js:37749
+frame#1 span=2575: CLOSURE=1992 REFERENCE=502 <- Array.prototype.flatMap
+```
+
+Decoded lines map **exactly** to `@agoric/internal/src/hex.js`:
+
+```js
+var decodings = new Map(
+  encodings.flatMap((hexdigits, b2) => {   // line 37745  (frame #2 call site)
+    const lo = hexdigits.toLowerCase();
+    const UP = hexdigits.toUpperCase();
+    return [
+      [lo, b2],                            // line 37749  (frame #0, the 256x4 pair-arrays)
+      ...
+    ];
+  })
+);
+```
+
+So the overflow's two widest activations are now **named to source**: frame #1 is
+the host `Array.prototype.flatMap` whose value-stack span carries the flattened
+module functor's ~1,992 persistent CLOSURE slots, and frame #0 is its callback
+materializing the 256x4=1,024 `[string, byte]` pair-arrays of `hex.js`'s
+`decodings` map (~1,247 REFERENCE slots).
+
+### Regression cross-check — same repro, beta2 vs beta3 Endo
+
+Identical contract source (two-worktree builds, same commit `9d518832d`; only the
+installed Endo libs differ), same instrumented worker, same `importBundle` repro:
+
+| run | stackCount | result | frame#0 (hex callback) | frame#1 (module functor) | total slots |
+|---|---|---|---|---|---|
+| **beta3** Endo | 4096 (on-chain default) | **overflow, exit 12** | 1253 | 2575 | 4096 / 4096 |
+| **beta2** Endo | 4096 | **OK, exit 0 — no overflow** | — | — | (under ceiling) |
+| beta2 Endo | 4032 (forced) | overflow at the SAME flatMap peak | 1228 | **2538** | 4029 / 4032 |
+
+beta2 does **not** reproduce at the production ceiling. Forcing it with a smaller
+stack shows it trips at the **identical** frame chain (same `hex.js` flatMap +
+module functor + SES import path; beta2 lines 37457/37461/43557 map to the same
+`encodings.flatMap`/`[lo, b]`/`export` source), only **narrower**: the module
+functor frame is **2538 (beta2) vs 2575 (beta3) = +37 CLOSURE slots**, matching the
+established **+32 top-level-binding** beta3 width delta. The regression is purely
+the marginal width of that one wide activation crossing 4096 — confirming the
+width mechanism, not a depth or new-allocation change.
+
+Build the symbolicated worker: recreate `xsnap-native/xsnap/build.config.env`
+(`XSNAP_VERSION=0.15.0` / `CC=cc "-D__has_builtin(x)=1"`), `rm` the prebuilt
+`build/bin/lin/release/xsnap-worker` symlink and `build/tmp/.../xsnapPlatform.o`,
+then `make ... -f xsnap-worker.mk`. For the beta2 near-limit dump, edit
+`stackCount` in `xsnap-worker.c` (line ~365) and recompile only `xsnap-worker.o`.
