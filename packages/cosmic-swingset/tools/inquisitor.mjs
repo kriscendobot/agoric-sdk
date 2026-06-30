@@ -611,11 +611,23 @@ export const makeSwingStoreOverlay = (dbPath, wrapStore = wrapSubstore) => {
           pendingItemsByVat.set(vatID, pendingItems);
           return rolloverMarker.incarnation;
         },
+        // Seed an empty current span for a freshly-created vat so the overlay
+        // can support createVat (the base store has no transcript for the new
+        // vatID; without a pending span getCurrentSpanBounds would fall through
+        // and throw "no current transcript"). The marker mirrors the synthetic
+        // '<initial>' span used by rolloverIncarnation.
+        initTranscript: vatID => {
+          recordCall('transcriptStore', 'initTranscript', vatID);
+          wrapHelpers.markStale(vatID);
+          pendingItemsByVat.set(vatID, [
+            { startPos: 0, endPos: 0, hash: '<initial>', incarnation: 0 },
+          ]);
+        },
       };
       return wrapStore('transcriptStore', transcriptStoreOverride, {
         ...wrapHelpers,
+        allow: ['initTranscript'],
         logAndMark: [
-          'initTranscript',
           'rolloverSpan',
           'stopUsingTranscript',
           ['deleteVatTranscripts', () => harden({ done: true, cleanups: 0 })],
