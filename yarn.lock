@@ -824,6 +824,7 @@ __metadata:
     "@endo/eventual-send": "npm:^1.3.4"
     "@endo/exo": "npm:^1.5.12"
     "@endo/far": "npm:^1.1.14"
+    "@endo/hex": "npm:^1.1.1"
     "@endo/init": "npm:^1.1.12"
     "@endo/marshal": "npm:^1.8.0"
     "@endo/nat": "npm:^5.1.3"
@@ -2575,6 +2576,22 @@ __metadata:
     "@endo/eventual-send": "npm:^1.3.4"
     "@endo/pass-style": "npm:^1.6.3"
   checksum: 10c0/80fe94846f3d430a38aae9653b7520246b5b1a62c6a3ca51a60897cace0e5ced435db5aad16b77ea1c4e23005cfe550f8239899d9a20eac27201f0f963716980
+  languageName: node
+  linkType: hard
+
+"@endo/harden@npm:^1.1.0":
+  version: 1.1.0
+  resolution: "@endo/harden@npm:1.1.0"
+  checksum: 10c0/52d8322ce797fb9ff3c59a3a907fc0d52d1a91d116b268aaa6ee7b8364f47c037f0cb1303170ed7367ffda2f7c1916d0231c2c2757fd56335c9ca345bf671796
+  languageName: node
+  linkType: hard
+
+"@endo/hex@npm:^1.1.1":
+  version: 1.1.1
+  resolution: "@endo/hex@npm:1.1.1"
+  dependencies:
+    "@endo/harden": "npm:^1.1.0"
+  checksum: 10c0/3f7e23e1f1e14cdfe238304688fe5e0e1acece8796e84aaab67547242e0ea38f648ebdb07d347c9e5aaa832436dc2cec709dbc56235384e4c63a2784e4d164e7
   languageName: node
   linkType: hard
 
