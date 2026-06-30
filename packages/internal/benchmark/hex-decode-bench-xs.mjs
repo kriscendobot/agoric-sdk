@@ -2,24 +2,21 @@
 /**
  * XS (xsnap) runner for the hex-decode benchmark.
  *
- * Drives a prebuilt agoric `xsnap-worker` over its fd-3/fd-4 netstring
- * protocol (the same protocol @agoric/xsnap speaks), feeds it the identical
- * engine-agnostic core used by the Node runner, then for each approach and
- * input reports BOTH the XS wall-clock per decode AND the XS metered `compute`
- * per decode. On the consensus engine the metered cost, not wall-clock, is what
- * a contract pays, so it is the number that decides whether the 484-entry Map
- * accelerator earns its keep.
+ * Drives an XS worker via `@agoric/xsnap`'s `xsnap()` export, feeds it the
+ * identical engine-agnostic core used by the Node runner, then for each
+ * approach and input reports BOTH the XS wall-clock per decode AND the XS
+ * metered `compute` per decode. On the consensus engine the metered cost, not
+ * wall-clock, is what a contract pays, so it is the number that decides whether
+ * the 484-entry Map accelerator earns its keep.
  *
- * The worker path is resolved portably through `@agoric/xsnap`: we resolve the
- * package via `import.meta.resolve` and then point at the prebuilt
- * `xsnap-worker` in its dist layout (the same location `install-prebuilt`
- * populates), so the benchmark finds the worker wherever `@agoric/xsnap` is
- * installed in the workspace. Set XSNAP_WORKER to override with an explicit
- * path. NOTE: many sandboxes mount /tmp noexec, so an overriding XSNAP_WORKER
- * should point at an exec-capable location (for example under ~/.cache).
- *
- * We resolve only the package's path (not its module graph) to avoid pulling
- * the SES-dependent @agoric/xsnap runtime into this plain benchmark process.
+ * The worker is the real `@agoric/xsnap` worker: `xsnap()` resolves the
+ * prebuilt `xsnap-worker` from the installed package, speaks its netstring
+ * protocol, and surfaces the per-evaluate `meterUsage` — so this script no
+ * longer recapitulates worker-path resolution or the fd-3/fd-4 framing. Set
+ * XSNAP_WORKER to override the worker binary (honored by `@agoric/xsnap`
+ * itself). NOTE: many sandboxes mount /tmp noexec, so an overriding
+ * XSNAP_WORKER should point at an exec-capable location (for example under
+ * ~/.cache).
  *
  * Run: node packages/internal/benchmark/hex-decode-bench-xs.mjs
  *   or: XSNAP_WORKER=/path/to/xsnap-worker \
@@ -31,124 +28,8 @@ import { readFileSync } from 'node:fs';
 import { type as osType } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-// Platform directory under @agoric/xsnap's dist layout (matches the package's
-// own resolveXsnapWorkerPath mapping).
-const XSNAP_PLATFORM = { Linux: 'lin', Darwin: 'mac' }[osType()];
-if (XSNAP_PLATFORM === undefined) {
-  throw Error(`xsnap does not support platform ${osType()}`);
-}
-
-const resolveWorkerPath = () => {
-  if (process.env.XSNAP_WORKER) return process.env.XSNAP_WORKER;
-  // import.meta.resolve gives the URL of @agoric/xsnap's package.json; the
-  // prebuilt worker lives at xsnap-native/.../xsnap-worker beside it.
-  const pkgJsonUrl = import.meta.resolve('@agoric/xsnap/package.json');
-  return fileURLToPath(
-    new URL(
-      `./xsnap-native/xsnap/build/bin/${XSNAP_PLATFORM}/release/xsnap-worker`,
-      pkgJsonUrl,
-    ),
-  );
-};
-
-const WORKER = resolveWorkerPath();
-
 const here = fileURLToPath(new URL('.', import.meta.url));
 const coreSrc = readFileSync(`${here}hex-decode-bench-core.js`, 'utf8');
-
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-const OK = '.'.charCodeAt(0);
-const ERROR = '!'.charCodeAt(0);
-const OK_SEPARATOR = 1;
-
-const frame = bytes => {
-  const head = enc.encode(`${bytes.length}:`);
-  const out = new Uint8Array(head.length + bytes.length + 1);
-  out.set(head, 0);
-  out.set(bytes, head.length);
-  out[out.length - 1] = ','.charCodeAt(0);
-  return out;
-};
-
-const makeReader = onMessage => {
-  let buf = Buffer.alloc(0);
-  return chunk => {
-    buf = Buffer.concat([buf, chunk]);
-    for (;;) {
-      const colon = buf.indexOf(0x3a);
-      if (colon < 0) return;
-      const len = Number(buf.subarray(0, colon).toString('ascii'));
-      const start = colon + 1;
-      const end = start + len;
-      if (buf.length < end + 1) return;
-      const payload = buf.subarray(start, end);
-      buf = buf.subarray(end + 1);
-      onMessage(Uint8Array.from(payload));
-    }
-  };
-};
-
-const makeWorker = ({ meteringLimit }) => {
-  const args = ['hexbench'];
-  if (meteringLimit) args.push('-l', `${meteringLimit}`);
-  const child = spawn(WORKER, args, {
-    stdio: [
-      'ignore',
-      'inherit',
-      'inherit',
-      'pipe',
-      'pipe',
-      'ignore',
-      'ignore',
-      'ignore',
-      'ignore',
-    ],
-  });
-  let pending = null;
-  const reader = makeReader(msg => {
-    if (!pending) return;
-    const p = pending;
-    pending = null;
-    if (msg[0] === OK) {
-      const sep = msg.indexOf(OK_SEPARATOR, 1);
-      let meter = null;
-      if (sep > 1) {
-        try {
-          meter = JSON.parse(dec.decode(msg.subarray(1, sep)));
-        } catch {
-          meter = null;
-        }
-      }
-      const reply = sep < 0 ? msg.subarray(1) : msg.subarray(sep + 1);
-      p.resolve({ ok: true, meter, reply: dec.decode(reply) });
-    } else if (msg[0] === ERROR) {
-      p.resolve({ ok: false, error: dec.decode(msg.subarray(1)) });
-    } else {
-      p.resolve({ ok: false, error: `unknown reply ${dec.decode(msg)}` });
-    }
-  });
-  child.stdio[4].on('data', reader);
-  const toX = child.stdio[3];
-  const evaluate = code =>
-    new Promise(resolve => {
-      pending = { resolve };
-      toX.write(Buffer.from(frame(enc.encode(`e${code}`))));
-    });
-  const close = () => {
-    try {
-      child.kill();
-    } catch {
-      // ignore
-    }
-  };
-  return { evaluate, close };
-};
-
-const must = res => {
-  if (!res.ok) throw new Error(`XS eval failed: ${res.error}`);
-  return res;
-};
 
 const SIZES = [
   { name: 'short', bytes: 8, iters: 4000 },
@@ -158,35 +39,42 @@ const SIZES = [
 const MODES = ['lower', 'upper', 'mixed'];
 const SEED = 0x1234abcd;
 
-const w = makeWorker({ meteringLimit: 2_000_000_000 });
+// Dynamic import to avoid static module dependency cycles. `xsnap()` resolves
+// the prebuilt worker from the installed @agoric/xsnap and speaks its protocol;
+// each evaluate returns a `meterUsage` and rejects on an uncaught XS exception,
+// so an inner `throw` IS the failure signal (no separate ok flag needed).
+const w = await (await import('@agoric/xsnap')).xsnap({
+  name: 'hex-decode-benchmark-xs-worker',
+  meteringLimit: 2_000_000_000,
+  // @ts-expect-error not providing filesystem access
+  fs: {},
+  os: osType(),
+  spawn,
+});
 
 // Table build cost: the metered compute of evaluating the core (which builds
 // the 484-entry Map accelerator at module scope).
-const buildRes = must(await w.evaluate(coreSrc));
-const tableBuildCompute = buildRes.meter ? buildRes.meter.compute : null;
+const buildRes = await w.evaluate(coreSrc);
+const tableBuildCompute = buildRes.meterUsage
+  ? buildRes.meterUsage.compute
+  : null;
 // xsnap's `e` reply carries the meter but not the completion value, so confirm
-// the table size by asserting inside XS (throws -> non-ok if it is not 484).
-must(
-  await w.evaluate(
-    'if (hexbench.tableSize !== 484) throw Error("table size " + hexbench.tableSize)',
-  ),
+// the table size by asserting inside XS (throws -> reject if it is not 484).
+await w.evaluate(
+  'if (hexbench.tableSize !== 484) throw Error("table size " + hexbench.tableSize)',
 );
 const tableSize = 484;
 
 // Build + correctness-check every corpus before timing. checkCorrectness
-// throws inside XS on any mismatch, so an ok reply IS the pass signal.
+// throws inside XS on any mismatch, so a resolved evaluate IS the pass signal.
 for (const { name, bytes } of SIZES) {
   for (const mode of MODES) {
     const key = `${name}-${mode}`;
-    must(
-      await w.evaluate(
-        `hexbench.makeCorpus(${JSON.stringify(key)}, ${bytes}, ${JSON.stringify(mode)}, ${SEED})`,
-      ),
+    await w.evaluate(
+      `hexbench.makeCorpus(${JSON.stringify(key)}, ${bytes}, ${JSON.stringify(mode)}, ${SEED})`,
     );
-    must(
-      await w.evaluate(
-        `hexbench.checkCorrectness(${JSON.stringify(key)}, ${bytes}, ${SEED})`,
-      ),
+    await w.evaluate(
+      `hexbench.checkCorrectness(${JSON.stringify(key)}, ${bytes}, ${SEED})`,
     );
   }
 }
@@ -197,15 +85,15 @@ for (const { name, bytes } of SIZES) {
 const measure = async (approach, key, iters) => {
   const call = `hexbench.decodeLoop(${JSON.stringify(approach)}, ${JSON.stringify(key)}, ${iters})`;
   // warmup
-  must(await w.evaluate(call));
+  await w.evaluate(call);
   let bestWall = Infinity;
   let compute = null;
   for (let rep = 0; rep < 4; rep += 1) {
     const t0 = process.hrtime.bigint();
-    const r = must(await w.evaluate(call));
+    const r = await w.evaluate(call);
     const dt = Number(process.hrtime.bigint() - t0);
     bestWall = Math.min(bestWall, dt);
-    if (r.meter) compute = r.meter.compute;
+    if (r.meterUsage) compute = r.meterUsage.compute;
   }
   return { wall: bestWall, compute };
 };
@@ -236,7 +124,7 @@ for (const { name, bytes, iters } of SIZES) {
   }
 }
 
-w.close();
+await w.close();
 
 // --- Report ------------------------------------------------------------------
 
@@ -248,7 +136,7 @@ const find = (size, mode, approach) =>
 
 // eslint-disable-next-line no-console
 console.log(
-  `# XS (xsnap) hex decode\nworker: ${WORKER}\ntable: ${tableSize}-entry Map\n`,
+  `# XS (xsnap) hex decode\nworker: @agoric/xsnap xsnap()\ntable: ${tableSize}-entry Map\n`,
 );
 // eslint-disable-next-line no-console
 console.log(`# Table build cost (one-time, at module instantiation)`);
@@ -300,5 +188,5 @@ for (const { name } of SIZES) {
 
 // eslint-disable-next-line no-console
 console.log(
-  `\n#JSON ${JSON.stringify({ engine: 'xs', worker: WORKER, tableSize, tableBuildCompute, results })}`,
+  `\n#JSON ${JSON.stringify({ engine: 'xs', worker: '@agoric/xsnap', tableSize, tableBuildCompute, results })}`,
 );

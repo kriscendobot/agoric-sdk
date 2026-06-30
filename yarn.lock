@@ -816,6 +816,7 @@ __metadata:
   dependencies:
     "@agoric/base-zone": "workspace:*"
     "@agoric/cosmic-proto": "workspace:*"
+    "@agoric/xsnap": "workspace:*"
     "@endo/cache-map": "npm:^1.1.0"
     "@endo/common": "npm:^1.2.13"
     "@endo/compartment-mapper": "npm:^1.6.3"
@@ -1500,7 +1501,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@agoric/xsnap@workspace:packages/xsnap":
+"@agoric/xsnap@workspace:*, @agoric/xsnap@workspace:packages/xsnap":
   version: 0.0.0-use.local
   resolution: "@agoric/xsnap@workspace:packages/xsnap"
   dependencies:
