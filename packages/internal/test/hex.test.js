@@ -1,19 +1,17 @@
 // @ts-check
 import test from 'ava';
 
-import { makePortableHexCodec, makeBufferishHexCodec } from '../src/hex.js';
+import { encodeHex, decodeHex } from '../src/hex.js';
 
 /**
- * The two codecs must be observationally equivalent: whichever one a platform
- * selects, `encodeHex`/`decodeHex` must accept and reject the same inputs and
- * produce the same bytes. The portable codec is the reference; the Bufferish
- * codec is exercised through Node's real `Buffer`.
+ * `@agoric/internal/src/hex.js` is a thin re-export of `@endo/hex`. These tests
+ * pin the behavior `@agoric/internal`'s callers rely on: full 0..255
+ * round-trip, upper/lower-case acceptance, lowercase-normalizing encode, empty
+ * input, and rejection of odd-length and non-hex input. The error text follows
+ * `@endo/hex`'s semantics (odd length vs. invalid character with offset) rather
+ * than the literal message the in-tree codec used to throw; no caller in this
+ * tree depends on the old string.
  */
-/** @type {Array<[string, import('../src/hex.js').HexCodec]>} */
-const codecs = [
-  ['portable', makePortableHexCodec()],
-  ['bufferish', makeBufferishHexCodec(Buffer)],
-];
 
 /** @type {Array<[string, number[]]>} valid input -> expected bytes */
 const validCases = [
@@ -27,66 +25,58 @@ const validCases = [
   ['0a0B', [0x0a, 0x0b]],
 ];
 
-/** Inputs both codecs must reject by throwing `Invalid hex string: ...`. */
-const invalidCases = [
-  'f', // odd length, single nibble
+/** Odd-length inputs: rejected for length before any character is inspected. */
+const oddLengthCases = [
+  'f', // single nibble
   'abc', // odd length with a valid prefix
   '012', // odd length
+  '12 34', // length 5 (embedded whitespace)
+];
+
+/** Even-length inputs that contain a non-hex character. */
+const invalidCharCases = [
   'zz', // non-hex characters
   'GG', // non-hex uppercase
   'gg', // non-hex lowercase
   'xy', // non-hex characters
   'abxc', // non-hex character mid-string
   'abcx', // non-hex character at the tail of an even-length string
-  '12 34', // embedded whitespace
   '0x41', // hex literal prefix is not valid hex
 ];
 
-for (const [name, codec] of codecs) {
-  for (const [hex, bytes] of validCases) {
-    test(`${name} decodeHex accepts valid input ${JSON.stringify(hex)}`, t => {
-      t.deepEqual([...codec.decodeHex(hex)], bytes);
-    });
-  }
-
-  for (const hex of invalidCases) {
-    test(`${name} decodeHex rejects invalid input ${JSON.stringify(hex)}`, t => {
-      t.throws(() => codec.decodeHex(hex), {
-        message: `Invalid hex string: ${hex}`,
-      });
-    });
-  }
-
-  test(`${name} encodeHex round-trips and normalizes to lowercase`, t => {
-    for (const [hex] of validCases) {
-      const round = codec.encodeHex(codec.decodeHex(hex));
-      t.is(round, hex.toLowerCase());
-    }
-  });
-
-  test(`${name} decodeHex round-trips arbitrary bytes`, t => {
-    const all = Uint8Array.from({ length: 256 }, (_, b) => b);
-    t.deepEqual([...codec.decodeHex(codec.encodeHex(all))], [...all]);
+for (const [hex, bytes] of validCases) {
+  test(`decodeHex accepts valid input ${JSON.stringify(hex)}`, t => {
+    t.deepEqual([...decodeHex(hex)], bytes);
   });
 }
 
-test('both codecs agree on every accept/reject decision', t => {
-  const [, portable] = codecs[0];
-  const [, bufferish] = codecs[1];
+for (const hex of oddLengthCases) {
+  test(`decodeHex rejects odd-length input ${JSON.stringify(hex)}`, t => {
+    t.throws(() => decodeHex(hex), { message: /even length/ });
+  });
+}
+
+for (const hex of invalidCharCases) {
+  test(`decodeHex rejects non-hex input ${JSON.stringify(hex)}`, t => {
+    t.throws(() => decodeHex(hex), { message: /Invalid hex character/ });
+  });
+}
+
+test('encodeHex round-trips and normalizes to lowercase', t => {
   for (const [hex] of validCases) {
-    t.deepEqual(
-      [...bufferish.decodeHex(hex)],
-      [...portable.decodeHex(hex)],
-      `accepted bytes disagree for ${JSON.stringify(hex)}`,
-    );
+    const round = encodeHex(decodeHex(hex));
+    t.is(round, hex.toLowerCase());
   }
-  for (const hex of invalidCases) {
-    const portableThrew = t.throws(() => portable.decodeHex(hex));
-    const bufferishThrew = t.throws(() => bufferish.decodeHex(hex));
-    t.is(
-      bufferishThrew?.message,
-      portableThrew?.message,
-      `rejection message disagrees for ${JSON.stringify(hex)}`,
-    );
-  }
+});
+
+test('round-trips every byte value 0..255', t => {
+  const all = Uint8Array.from({ length: 256 }, (_, b) => b);
+  t.deepEqual([...decodeHex(encodeHex(all))], [...all]);
+});
+
+test('@ and backtick guards: even-length input with those chars is rejected', t => {
+  // `@` (0x40) sits just below 'A' (0x41); backtick (0x60) just below 'a'
+  // (0x61). The char-code arithmetic must not admit either as a hex digit.
+  t.throws(() => decodeHex('@@'), { message: /Invalid hex character/ });
+  t.throws(() => decodeHex('``'), { message: /Invalid hex character/ });
 });

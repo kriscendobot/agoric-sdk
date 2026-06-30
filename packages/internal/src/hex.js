@@ -1,122 +1,19 @@
 /**
- * @typedef {object} HexCodec
- * @property {(buf: Uint8Array) => string} encodeHex
- * @property {(hex: string) => Uint8Array} decodeHex
- */
-
-/** @type {string[]} */
-const encodings = Array.from({ length: 256 }, (_, b) =>
-  // Write the hex representation of the byte.
-  b.toString(16).padStart(2, '0'),
-);
-
-/**
- * Map every hex string to its byte value, keyed by all four permutations of
- * lowercase and uppercase transformations of the two hex digits per byte. This
- * allows for fast lookups when decoding hex strings.
+ * Hex transcoding for `@agoric/internal`, delegated to `@endo/hex`.
  *
- * Built with a bounded `for` loop that inserts entries incrementally, rather
- * than `encodings.flatMap(...)` feeding a 1024-element pair array into
- * `new Map(...)`. On XS, constructing and spreading large intermediate arrays
- * this way is a metered-stack hazard; incremental `set` keeps stack depth O(1)
- * in the table size.
+ * This module used to carry an in-tree codec. It now re-exports the published
+ * `@endo/hex` package, which is a tiered codec: it dispatches to the native
+ * TC39 `Uint8Array.prototype.toHex` / `Uint8Array.fromHex` intrinsics
+ * (proposal-arraybuffer-base64) when present, and otherwise falls through to a
+ * pure-JavaScript char-code-arithmetic polyfill with bounded loops and no
+ * module-scope mutable lookup table. That native→char-code tiering is
+ * XS-stack-safe and avoids the `flatMap`/`Map`-construction hazards that
+ * motivated the in-tree workaround this file used to carry.
  *
- * @type {Map<string, number>}
- */
-const decodings = new Map();
-for (let b = 0; b < encodings.length; b += 1) {
-  const hexdigits = encodings[b];
-  const lo = hexdigits.toLowerCase();
-  const UP = hexdigits.toUpperCase();
-  decodings.set(lo, b);
-  decodings.set(`${lo[0]}${UP[1]}`, b);
-  decodings.set(`${UP[0]}${lo[1]}`, b);
-  decodings.set(UP, b);
-}
-
-/**
- * Create a hex codec that is portable across standard JS environments.
+ * `encodeHex(bytes)` emits lowercase hex. `decodeHex(string)` accepts both
+ * upper- and lowercase input and throws on odd-length strings and on any
+ * character outside `[0-9a-fA-F]`.
  *
- * @returns {HexCodec}
+ * @see https://github.com/endojs/endo/blob/master/packages/hex/README.md
  */
-export const makePortableHexCodec = () => {
-  /** @type {HexCodec} */
-  const portableHexCodec = {
-    encodeHex: buf => Array.from(buf, b => encodings[b]).join(''),
-    decodeHex: hex => {
-      const inputLen = hex.length;
-      if (inputLen % 2 !== 0) {
-        throw new Error(`Invalid hex string: ${hex}`);
-      }
-      const buf = new Uint8Array(inputLen / 2);
-      for (let i = 0; i < inputLen; i += 2) {
-        const b = decodings.get(hex.slice(i, i + 2));
-        if (b === undefined) {
-          throw new Error(`Invalid hex string: ${hex}`);
-        }
-        // eslint-disable-next-line no-bitwise
-        buf[i >> 1] = b;
-      }
-      return buf;
-    },
-  };
-
-  return portableHexCodec;
-};
-
-/**
- * @typedef {Pick<BufferConstructor, 'from' | 'isBuffer'> & {
- *   prototype: Pick<Buffer, 'toString'> & Uint8Array;
- * }} BufferishConstructor
- *   is the portion of the Node.js Buffer API we need for hex conversion.
- */
-
-/**
- * Create a hex codec using parts of the Node.js Buffer API.
- *
- * @param {BufferishConstructor} Bufferish the object that implements the
- *   necessary pieces of Buffer
- * @returns {HexCodec}
- */
-export const makeBufferishHexCodec = Bufferish => {
-  /** @type {HexCodec} */
-  const attenuatedBufferHexCodec = {
-    encodeHex: buf =>
-      (Bufferish.isBuffer?.(buf) ? buf : Bufferish.from(buf)).toString('hex'),
-    decodeHex: hex => {
-      // `Bufferish.from(hex, 'hex')` silently drops invalid input rather than
-      // throwing: it ignores an odd-length trailing nibble and stops at the
-      // first non-hex character, returning the bytes parsed so far. Validate
-      // up front so this codec rejects the same inputs as the portable codec,
-      // throwing the identical `Invalid hex string: ${hex}` error.
-      if (hex.length % 2 !== 0) {
-        throw new Error(`Invalid hex string: ${hex}`);
-      }
-      const buf = Bufferish.from(hex, 'hex');
-      // A complete parse consumes the whole string, yielding one byte per two
-      // input characters. A shorter result means a non-hex character was
-      // encountered and the tail was silently dropped.
-      if (buf.byteLength !== hex.length / 2) {
-        throw new Error(`Invalid hex string: ${hex}`);
-      }
-
-      // Coerce to Uint8Array to avoid leaking the abstraction.
-      const u8a = new Uint8Array(
-        buf.buffer,
-        buf.byteOffset,
-        buf.byteLength / Uint8Array.BYTES_PER_ELEMENT,
-      );
-      return u8a;
-    },
-  };
-  return attenuatedBufferHexCodec;
-};
-
-/**
- * Export a hex codec that can work with standard JS engines, but takes
- * advantage of optimizations on some platforms (like Node.js's Buffer API).
- */
-export const { encodeHex, decodeHex } =
-  typeof Buffer === 'undefined'
-    ? makePortableHexCodec()
-    : makeBufferishHexCodec(Buffer);
+export { encodeHex, decodeHex } from '@endo/hex';
