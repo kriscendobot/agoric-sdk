@@ -43,7 +43,9 @@ const SEED = 0x1234abcd;
 // the prebuilt worker from the installed @agoric/xsnap and speaks its protocol;
 // each evaluate returns a `meterUsage` and rejects on an uncaught XS exception,
 // so an inner `throw` IS the failure signal (no separate ok flag needed).
-const w = await (await import('@agoric/xsnap')).xsnap({
+const w = await (
+  await import('@agoric/xsnap')
+).xsnap({
   name: 'hex-decode-benchmark-xs-worker',
   meteringLimit: 2_000_000_000,
   // @ts-expect-error not providing filesystem access
