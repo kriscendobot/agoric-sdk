@@ -16,6 +16,11 @@ export {
 } from './controller/swingset-config-node.js';
 export { upgradeSwingset } from './controller/upgradeSwingset.js';
 export {
+  promoteVatsToCritical,
+  DEFAULT_CRITICAL_VAT_PROMOTIONS,
+  DEFAULT_CRITICAL_VAT_LABELS,
+} from './controller/promoteVatsToCritical.js';
+export {
   buildMailboxStateMap,
   buildMailbox,
   exportMailboxData,

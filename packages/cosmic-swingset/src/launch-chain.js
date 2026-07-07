@@ -24,6 +24,8 @@ import {
   loadSwingsetConfigFile,
   normalizeConfig,
   upgradeSwingset,
+  promoteVatsToCritical,
+  DEFAULT_CRITICAL_VAT_LABELS,
 } from '@agoric/swingset-vat';
 import { openSwingStore } from '@agoric/swing-store';
 import { attenuate, BridgeId as BRIDGE_ID } from '@agoric/internal';
@@ -289,6 +291,25 @@ export async function buildSwingset(
 
   const pendingCoreProposals = await ensureSwingsetInitialized();
   const { modified } = upgradeSwingset(kernelStorage);
+
+  // PROTOTYPE (kriskowal/garden#29): promote the ymax portfolio vat to
+  // `critical` at chain-upgrade time. This runs at the same reboot moment as
+  // upgradeSwingset() — after the DB is initialized and BEFORE the controller
+  // is built — which is the only point at which the consensus kvStore key
+  // `${vatID}.options` can be safely rewritten (the cosmos chainID is not yet
+  // available here; it arrives later with AG_COSMOS_INIT, by which time the
+  // controller exists). So we gate by vat LABEL rather than chainID: only
+  // agoric-3 carries a vat labelled `ymax1` and only agoricdev-25 carries one
+  // labelled `ymax0`, so this is a no-op on every other chain. The call is
+  // idempotent (a vat already critical is left untouched). See
+  // packages/SwingSet/src/controller/promoteVatsToCritical.js for the
+  // chainID-gated alternative and the rationale.
+  const promotion = promoteVatsToCritical(kernelStorage, {
+    targets: DEFAULT_CRITICAL_VAT_LABELS,
+  });
+  if (promotion.promoted.some(p => !p.wasCritical)) {
+    console.log('promoted vats to critical:', promotion.promoted);
+  }
   const controller = await makeSwingsetController(
     kernelStorage,
     deviceEndowments,
