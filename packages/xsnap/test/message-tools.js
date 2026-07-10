@@ -78,6 +78,17 @@ export const filterRepairLogs = logs => {
     if (parts[0] === ' ' && inGroup) {
       return false;
     }
+    // XS 16.7.1 (Moddable 5.5.0) ships the immutable-ArrayBuffer proposal, so
+    // SES emits an "About to overwrite ArrayBuffer.prototype properties [...]"
+    // repair warning while its faux-data-property tamer reconciles the new
+    // intrinsic. Same class of engine-upgrade-ahead-of-permits noise as above.
+    if (
+      typeof parts[0] === 'string' &&
+      parts[0].startsWith('About to overwrite ')
+    ) {
+      inGroup = false;
+      return false;
+    }
     inGroup = false;
     return true;
   });

@@ -47,7 +47,7 @@ test('meter details', async t => {
 
   t.like(
     meters,
-    { compute: 1_300_705, allocate: 42_074_144, currentHeapCount: 104_559 },
+    { compute: 1_300_705, allocate: 42_074_144, currentHeapCount: 104_407 },
     'compute, allocate meters should be stable; update METER_TYPE?',
   );
 
