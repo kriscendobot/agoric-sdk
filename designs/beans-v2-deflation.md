@@ -4,15 +4,13 @@
 | --- | --- |
 | Status | draft |
 | Date | 2026-07-07 |
-| Revised | 2026-07-07 — folded in the implementation spec at hackmd.io/@michaelfig/B1kUP-XMGg (the `AddBeansOwing`/`ConvertBeansOwing` split, ante-time enforcement, min-gas-price simulation folding, Go-formula-to-params migration) |
-| Origin | community thread "Using Agoric beans v2 as a deflationary mechanism" (Michael_FIG), community.agoric.com/t/using-agoric-beans-v2-as-a-deflationary-mechanism/954; implementation spec hackmd.io/@michaelfig/B1kUP-XMGg |
 | Scope | `golang/cosmos/x/swingset`, `golang/cosmos/ante`, `packages/cosmic-swingset` |
 
 ## Problem
 
 SwingSet already bills asynchronous JS work in *beans*, a unit distinct from
-Cosmos gas. The cosmos-side fee path exists today but has three properties the
-community proposal wants changed:
+Cosmos gas. The cosmos-side fee path today has three properties this design
+changes:
 
 1. **Latent, invisible deduction.** `Keeper.ChargeBeans`
    (`golang/cosmos/x/swingset/keeper/keeper.go`) accrues a per-address
@@ -23,8 +21,7 @@ community proposal wants changed:
    (`vbanktypes.ReservePoolName`, wired as the SwingSet keeper's
    `feeCollectorName` in `golang/cosmos/app/app.go`). The client signs a tx
    whose `fee` field says nothing about this; some later transaction
-   crosses the threshold and pays for its predecessors. The thread calls
-   this "spooky action at a distance".
+   crosses the threshold and pays for its predecessors.
 2. **Charge shape is code, not parameters.** The bean *prices* are already
    governance parameters (`Params.BeansPerUnit`, `Params.FeeUnitPrice` in
    `golang/cosmos/proto/agoric/swingset/swingset.proto`, mutable via a
@@ -40,7 +37,7 @@ community proposal wants changed:
    governance-selectable disposition, so the mechanism cannot be made
    deflationary without an upgrade.
 
-## Requirements (from the community thread and the HackMD spec)
+## Requirements
 
 1. All deflation-related parameters tunable by staker governance, no
    software upgrade required.
@@ -53,16 +50,15 @@ community proposal wants changed:
 
 ## Design
 
-The HackMD spec fixes the implementation shape: **counting stays an
-accounting-only act against the existing `beansOwing` balance, and the
-deduction moves into the ante handler, expressed in gas-meter terms.**
-`ChargeBeans` splits into `AddBeansOwing` (track debt, never touch the
-bank) and `ConvertBeansOwing` (drain the debt into a gas amount and a fee
-amount at ante time). A minimum-gas-price parameter ties the two worlds
-together: during simulation it translates bean fees into extra `gas_used`
-so the client's estimate covers them; during execution it is an enforced
-floor on the tx's effective gas price, so the extra gas consumed
-corresponds to real fee value. Finally, the bean calculations currently
+Counting stays an accounting-only act against the existing `beansOwing`
+balance, and the deduction moves into the ante handler, expressed in
+gas-meter terms. `ChargeBeans` splits into `AddBeansOwing` (track debt,
+never touch the bank) and `ConvertBeansOwing` (drain the debt into a gas
+amount and a fee amount at ante time). A minimum-gas-price parameter ties
+the two worlds together: during simulation it translates bean fees into
+extra `gas_used` so the client's estimate covers them; during execution it
+is an enforced floor on the tx's effective gas price, so the extra gas
+consumed corresponds to real fee value. The bean calculations currently
 hardcoded in Go migrate into `msg_type_bean_overrides` entries, so the
 formula itself — not just its prices — becomes a governance parameter.
 
@@ -105,33 +101,11 @@ reusing the existing `StringBeans` shape so JS mirrors
 (`packages/cosmic-swingset/src/sim-params.js`, which today mirrors
 `default-params.go`) extend naturally.
 
-Naming reconciliation with the HackMD spec:
-
-- `msg_type_bean_overrides` here **is** the HackMD's
-  `msgTypeBeanOverrides: Array<[MsgType, Array<[Unit, UIntString]>]>` —
-  the same parameter, spelled proto-side. The HackMD chooses arrays of
-  entries over maps "for deterministic ordering"; `repeated MsgTypeBeans`
-  gives the same determinism.
-- `bean_gas_price` here **is** the HackMD's "new minimum gas price
-  parameter". The first draft of this design used it only as a
-  simulation-time translation price; the HackMD widens it into an
-  execution-time floor as well, and this design follows. The HackMD's
-  implementation notes say the minimum is "encoded in `beansPerUnit`
-  parameter values", i.e. carried as entries in the existing
-  `beans_per_unit` menu rather than a new proto field; whether it lives
-  there or as the dedicated field above is an encoding choice, surfaced
-  in Open questions.
-- The HackMD's `AnteHandlerDecorator` changes and this design's
-  `BeanFeeDecorator` are **the same thing**: one updated/added decorator
-  in `golang/cosmos/ante` that enforces the floor, converts the owed
-  beans, and disposes of the fee. This design keeps the concrete name
-  `BeanFeeDecorator` for the new code.
-
 ### Splitting `ChargeBeans`: counting is accounting, conversion is ante
 
 Today the charge rides `AdmissionDecorator` → `CheckAdmissibility` →
 `chargeAdmission` → `ChargeBeans`, which both tracks the debt and (past
-the `minFeeDebit` threshold) moves coins. Per the HackMD, split
+the `minFeeDebit` threshold) moves coins. Split
 `Keeper.ChargeBeans` (`golang/cosmos/x/swingset/keeper/keeper.go`) in two:
 
 - **`AddBeansOwing(ctx, addr, msgType, unit, amount)`** — accounting
@@ -165,10 +139,9 @@ this lands, with no state migration.
 
 ### `BeanFeeDecorator`: enforcement and disposition (requirement 4)
 
-The new/updated decorator in `golang/cosmos/ante` (the HackMD's
-"AnteHandlerDecorator changes") runs **before the builtin Cosmos SDK
-gas/fee ante processing** (`ante.NewDeductFeeDecoratorWithName`), so the
-bean skim happens ahead of conventional execution:
+The new/updated decorator in `golang/cosmos/ante` runs **before the builtin
+Cosmos SDK gas/fee ante processing** (`ante.NewDeductFeeDecoratorWithName`),
+so the bean skim happens ahead of conventional execution:
 
 ```mermaid
 flowchart LR
@@ -191,8 +164,7 @@ flowchart LR
   consumed at a floored price is worth at least the corresponding coins.
 - **Convert:** call `swingsetKeeper.ConvertBeansOwing(...)`, then count
   `beanGas` against the context's gas meter — the bean charge occupies
-  part of the supplied gas limit, exactly as the HackMD's "deduct the
-  extra portion of the gas limit".
+  part of the supplied gas limit.
 - **Dispose (executing only):** deduct `beanFees` from the payer and
   split it per params — `bean_fee_burn_fraction` of the coins destroyed
   with `BankKeeper.BurnCoins` via the `x/swingset` module account (the
@@ -228,9 +200,8 @@ charge event for clients that want to itemize.
   `bean_fee_burn_fraction = "0"`, `bean_fee_collector = "vbank/reserve"`,
   `bean_gas_price` unset (simulation folding and floor off). With those
   defaults the chain behaves exactly as today; every deviation is a later
-  governance act, which is the thread's "general rails, not a one-off"
-  ask.
-- **Go formula → params (HackMD plan step 4):** migrate the bean
+  governance act.
+- **Go formula → params:** migrate the bean
   calculations currently hardcoded in `x/swingset` Go into equivalent
   `msg_type_bean_overrides` entries — the upgrade handler (or genesis for
   new chains) seeds one entry per `vm.ControllerAdmissionMsg` type,
@@ -261,24 +232,20 @@ charge event for clients that want to itemize.
 
 ## Open questions
 
-- **Override entry semantics.** The HackMD's example entry
-  `['/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward', [['message', '1000000000']]]`
-  is captioned "charge an arbitrary number of beans per withdraw reward
-  message". This design reads each `[unit, value]` pair as a per-message-
-  type *price menu* — `value` beans per occurrence of `unit` (1 for
-  `message`, the byte count for `messageByte`, …) — because that reading
-  lets the seeded entries express today's size-dependent admission
-  formula. The alternative reading (`value` = a count of `unit`s priced
-  at the global `beans_per_unit` rate) cannot express per-byte terms
-  statically. Confirm the intended semantics.
+- **Override entry semantics.** This design reads each `[unit, value]`
+  pair in an override entry as a per-message-type *price menu* — `value`
+  beans per occurrence of `unit` (1 for `message`, the byte count for
+  `messageByte`, …) — because that reading lets the seeded entries express
+  today's size-dependent admission formula. The alternative reading
+  (`value` = a count of `unit`s priced at the global `beans_per_unit`
+  rate) cannot express per-byte terms statically. Confirm the intended
+  semantics.
 - **Interplay with the builtin `DeductFeeDecorator`.** After
   `BeanFeeDecorator` deducts and disposes of `beanFees`, does the builtin
   fee deduction operate on `suppliedFees − beanFees` (requires adjusting
   the fee the decorator chain sees) or on the full fee with the bean
-  portion carved out of the fee collector afterwards? The HackMD says
-  only "before continuing with the standard Cosmos gas/fee ante handler
-  processing"; the net-of-beans reading avoids double-charging and is
-  assumed here.
+  portion carved out of the fee collector afterwards? The net-of-beans
+  reading avoids double-charging and is assumed here.
 - **Decorator ordering.** Today `AdmissionDecorator` (where counting
   happens) sits *after* `ante.NewDeductFeeDecoratorWithName`; the bean
   conversion must run after counting but before the builtin fee
@@ -286,8 +253,8 @@ charge event for clients that want to itemize.
   or does `BeanFeeDecorator` take over counting for the current tx? The
   ante chain in `golang/cosmos/ante/ante.go` needs an explicit new order.
 - **Where does the minimum gas price live?** This design gives it a
-  dedicated `bean_gas_price` DecCoin param; the HackMD encodes it "in
-  `beansPerUnit` parameter values" (entries in the existing menu, which
+  dedicated `bean_gas_price` DecCoin param; an alternative encodes it in
+  `beans_per_unit` parameter values (entries in the existing menu, which
   are unit-keyed `sdk.Uint`s and would need a denom convention). A
   dedicated field is more legible; the menu encoding avoids a proto
   change. Related: should it instead reuse a consensus-level min-gas-price
