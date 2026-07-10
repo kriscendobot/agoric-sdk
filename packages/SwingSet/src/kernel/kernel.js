@@ -481,6 +481,7 @@ export default function buildKernel(
    *    meterID?: string, // deduct those computrons from a meter
    *    measureDirt?: { vatID: VatID, dirt: Dirt }, // dirt counters should increment
    *    terminate?: { vatID: VatID, reject: boolean, info: SwingSetCapData }, // terminate vat, notify vat-admin
+   *    park?: { vatID: VatID, info: SwingSetCapData }, // park vat (reversible), evict worker, defer deliveries
    *    vatAdminMethargs?: RawMethargs, // methargs to notify vat-admin about create/upgrade results
    * } } CrankResults
    */
@@ -995,8 +996,14 @@ export default function buildKernel(
    */
   async function processUpgradeVat(message) {
     assert(vatAdminRootKref, 'initializeKernel did not set vatAdminRootKref');
-    const { vatID, upgradeID, bundleID, vatParameters, upgradeMessage } =
-      message;
+    const {
+      vatID,
+      upgradeID,
+      bundleID,
+      vatParameters,
+      upgradeMessage,
+      onUpgradeFailure,
+    } = message;
     insistCapData(vatParameters);
     assert.typeof(upgradeMessage, 'string');
 
@@ -1005,6 +1012,15 @@ export default function buildKernel(
       return NO_DELIVERY_CRANK_RESULTS; // vat terminated already
     }
     const { meterID } = vatInfo;
+
+    // If this vat is currently parked (a prior upgrade or replay failed), this
+    // upgrade is a *resume*: the new incarnation boots from durable state with
+    // no old-engine replay, and its pre-upgrade bringOutYourDead is skipped
+    // because the parked vat has no worker to run it. A resume that fails again
+    // re-parks the vat rather than terminating or rolling back (there is no
+    // safe old incarnation to roll back to — that is why it was parked).
+    const wasParked = kernelKeeper.vatIsParked(vatID);
+    const parkOnFailure = onUpgradeFailure === 'park' || wasParked;
     let computrons;
     const vatKeeper = kernelKeeper.provideVatKeeper(vatID);
     const oldIncarnation = vatKeeper.getIncarnationNumber();
@@ -1044,16 +1060,29 @@ export default function buildKernel(
         [upgradeID, false, error],
       ];
 
+      // Under the 'park' policy (or when resuming an already-parked vat), the
+      // crank still unwinds, but instead of silently re-creating the OLD
+      // incarnation on the next delivery, we degrade the vat into a reversible
+      // `parked` state: worker evicted, ALL durable state retained, deliveries
+      // deferred into the vat's park queue. The park is recorded on the
+      // CrankResults and applied *after* abortCrank, the same post-abort route
+      // `terminate` uses to survive the unwind. `vatUpgradeCallback(false)`
+      // still fires, so the upgrader's promise still rejects.
+      const park = parkOnFailure ? { vatID, info: errorCapData } : undefined;
       const results = harden({
         ...badDeliveryResults,
         computrons, // still report computrons
         abort: true, // always unwind
         consumeMessage: true, // don't repeat the upgrade
         terminate: undefined, // do *not* terminate the vat
+        park, // park (reversibly) instead of rolling back, under 'park' policy
         vatAdminMethargs,
       });
       return results;
     };
+
+    // separate the first `await` from surrounding synchronous work
+    await null;
 
     // cleanup on behalf of the worker
     // This used to be handled by a stopVat delivery to the vat itself,
@@ -1069,33 +1098,47 @@ export default function buildKernel(
     // send BOYD so the terminating vat has one last chance to clean
     // up, drop imports, and delete durable data.
     // If a vat is so broken it can't do BOYD, we can make this optional.
-    /** @type { KernelDeliveryBringOutYourDead } */
-    const boydKD = harden(['bringOutYourDead']);
-    const boydVD = vatWarehouse.kernelDeliveryToVatDelivery(vatID, boydKD);
-    const boydStatus = await deliverAndLogToVat(vatID, boydKD, boydVD);
-    const boydResults = deliveryCrankResults(vatID, boydStatus, false);
+    //
+    // A parked vat has no worker and cannot run BOYD (this upgrade is its
+    // resume), so we skip the pre-upgrade BOYD entirely for it — exactly the
+    // "if a vat is so broken it can't do BOYD" case anticipated above. Kernel-
+    // side promise disconnection and non-durable-export abandonment below still
+    // run, as in any upgrade.
+    if (!wasParked) {
+      /** @type { KernelDeliveryBringOutYourDead } */
+      const boydKD = harden(['bringOutYourDead']);
+      const boydVD = vatWarehouse.kernelDeliveryToVatDelivery(vatID, boydKD);
+      const boydStatus = await deliverAndLogToVat(vatID, boydKD, boydVD);
+      const boydResults = deliveryCrankResults(vatID, boydStatus, false);
 
-    // we don't meter bringOutYourDead since no user code is running, but we
-    // still report computrons to the runPolicy
-    computrons = addComputrons(computrons, boydResults.computrons);
+      // we don't meter bringOutYourDead since no user code is running, but we
+      // still report computrons to the runPolicy
+      computrons = addComputrons(computrons, boydResults.computrons);
 
-    // In the unexpected event that there is a problem during this
-    // upgrade-internal BOYD, the appropriate response isn't fully
-    // clear. We currently opt to translate a `terminate` result into a
-    // non-terminating `abort` that unwinds the upgrade delivery, and to
-    // ignore a non-terminate `abort` result. This is expected to change
-    // in the future, especially if we ever need some kind of emergency/
-    // manual upgrade (which might involve something like throwing an
-    // error to prompt a kernel panic if the bad vat is marked critical).
-    // There's a good analysis at
-    // https://github.com/Agoric/agoric-sdk/pull/7244#discussion_r1153633902
-    if (boydResults.terminate) {
-      console.log(
-        `WARNING: vat ${vatID} failed to upgrade from incarnation ${oldIncarnation} (BOYD)`,
-      );
-      const { info: errorCapData } = boydResults.terminate;
-      const results = await abortUpgrade(boydResults, errorCapData);
-      return results;
+      // In the unexpected event that there is a problem during this
+      // upgrade-internal BOYD, the appropriate response isn't fully
+      // clear. We currently opt to translate a `terminate` result into a
+      // non-terminating `abort` that unwinds the upgrade delivery, and to
+      // ignore a non-terminate `abort` result. This is expected to change
+      // in the future, especially if we ever need some kind of emergency/
+      // manual upgrade (which might involve something like throwing an
+      // error to prompt a kernel panic if the bad vat is marked critical).
+      // There's a good analysis at
+      // https://github.com/Agoric/agoric-sdk/pull/7244#discussion_r1153633902
+      if (boydResults.terminate) {
+        console.log(
+          `WARNING: vat ${vatID} failed to upgrade from incarnation ${oldIncarnation} (BOYD)`,
+        );
+        const { info: errorCapData } = boydResults.terminate;
+        const results = await abortUpgrade(boydResults, errorCapData);
+        return results;
+      }
+    } else {
+      // Resume: lift the parked flag before we rebuild the worker, so the
+      // startVat delivery below is allowed to bring a fresh worker online.
+      // If this resume-upgrade fails, the post-abort park step re-parks the
+      // vat (and this unpark is itself rolled back by abortCrank).
+      kernelKeeper.unparkVat(vatID);
     }
 
     // We are homesick for a future in which most promises are
@@ -1191,6 +1234,24 @@ export default function buildKernel(
       `vat ${vatID} upgraded from incarnation ${oldIncarnation} to ${newIncarnation} with source ${bundleID}`,
     );
 
+    if (wasParked) {
+      // Resume succeeded: the deferred deliveries drain FIFO onto the
+      // acceptance queue, ahead of new traffic, and flow to the new
+      // incarnation (same krefs). Moving between queues is refcount-neutral.
+      let deferred = 0;
+      for (
+        let ev = kernelKeeper.getNextParkQueueMsg(vatID);
+        ev !== undefined;
+        ev = kernelKeeper.getNextParkQueueMsg(vatID)
+      ) {
+        kernelKeeper.addToAcceptanceQueue(harden(ev));
+        deferred += 1;
+      }
+      console.log(
+        `vat ${vatID} resumed from parked state, ${deferred} deferred deliveries requeued`,
+      );
+    }
+
     // These args will be part of a delivery so they must be passable.
     // upgradeID is generated by the kernel in makeUpgradeID
     const args = [upgradeID, true, undefined, newIncarnation];
@@ -1202,6 +1263,33 @@ export default function buildKernel(
       vatAdminMethargs,
     });
     return results;
+  }
+
+  /**
+   * Park a vat: reversible degradation used when an upgrade fails under the
+   * 'park' policy (detection hook 1), applied after the crank has unwound. The
+   * worker was already evicted by abortUpgrade's stopWorker; ALL durable state
+   * (vatstore, c-lists, transcript, snapshot, incarnation) is retained.
+   * Subsequent deliveries are deferred into the vat's park queue until it is
+   * resumed via adminNode.upgrade() or adminNode.restart(). `vatIsAlive` stays
+   * true — a parked vat is not dead, just quiescent.
+   *
+   * @param {VatID} vatID
+   * @param {SwingSetCapData} info
+   */
+  function parkVat(vatID, info) {
+    const vatKeeper = kernelKeeper.provideVatKeeper(vatID);
+    const incarnation = vatKeeper.getIncarnationNumber();
+    const crankNum = Number(kernelKeeper.getCrankNumber());
+    kernelKeeper.markVatAsParked(vatID, {
+      reason: 'vat-upgrade failure',
+      phase: 'upgrade',
+      incarnation,
+      crankNum,
+    });
+    console.log(
+      `vat ${vatID} parked at incarnation ${incarnation} (crank ${crankNum}): ${JSON.stringify(info?.body)}`,
+    );
   }
 
   /** @type {(message: RunQueueEvent) => string} */
@@ -1370,6 +1458,23 @@ export default function buildKernel(
 
     let deliverP = NO_DELIVERY_CRANK_RESULTS;
 
+    // If the destination vat is parked, defer this event into its per-vat park
+    // queue instead of delivering. This is refcount-neutral — the queued
+    // message keeps holding refcounts on its krefs, exactly like an
+    // acceptance->run queue move — so we must NOT decrement here. The queue
+    // drains FIFO onto the acceptance queue when the vat resumes. A parked vat
+    // is therefore caller-observably just a very slow vat: no new error
+    // contract, result promises simply do not settle until resume. Control
+    // events (upgrade-vat, changeVatOptions) are never deferred — upgrade-vat
+    // to a parked vat is precisely the resume path.
+    const deferIfParked = (targetVatID, event) => {
+      if (targetVatID && kernelKeeper.vatIsParked(targetVatID)) {
+        kernelKeeper.addToParkQueue(targetVatID, event);
+        return true;
+      }
+      return false;
+    };
+
     // The common action should be delivering events to the vat. Any references
     // in the events should no longer be the kernel's responsibility and the
     // refcounts should be decremented
@@ -1381,8 +1486,10 @@ export default function buildKernel(
       } else {
         vatID = route.vatID;
         if (vatID) {
-          decrementSendEventRefCount(message);
-          deliverP = processSend(vatID, route.target, message.msg);
+          if (!deferIfParked(vatID, { ...message, target: route.target })) {
+            decrementSendEventRefCount(message);
+            deliverP = processSend(vatID, route.target, message.msg);
+          }
         } else {
           // Message is requeued and stays the kernel's responsibility, do not
           // decrement refcounts in this case
@@ -1391,8 +1498,10 @@ export default function buildKernel(
       }
       // vatID will be undefined for splat or requeue, else vat of deliverry
     } else if (message.type === 'notify') {
-      decrementNotifyEventRefCount(message);
-      deliverP = processNotify(message);
+      if (!deferIfParked(message.vatID, message)) {
+        decrementNotifyEventRefCount(message);
+        deliverP = processNotify(message);
+      }
     } else if (message.type === 'create-vat') {
       // creating a new dynamic vat will immediately do start-vat
       deliverP = processCreateVat(message);
@@ -1410,7 +1519,12 @@ export default function buildKernel(
     } else if (message.type === 'bringOutYourDead') {
       deliverP = processBringOutYourDead(message);
     } else if (isGcMessage(message)) {
-      deliverP = processGCMessage(message);
+      // GC deliveries to a parked vat are deferred too: a parked vat retains
+      // all its exports (they are not orphaned), so its GC actions must wait
+      // until it resumes rather than being applied against an offline worker.
+      if (!deferIfParked(message.vatID, message)) {
+        deliverP = processGCMessage(message);
+      }
     } else {
       // @ts-expect-error unreachable
       Fail`unable to process message.type ${message.type}`;
@@ -1526,6 +1640,14 @@ export default function buildKernel(
       kernelSlog.terminateVat(vatID, reject, info);
       // this deletes state, rejects promises, notifies vat-admin
       await terminateVat(vatID, reject, info);
+    }
+
+    // Parking, like termination, rides on crankResults so it survives the
+    // abortCrank unwind above, and is applied here after the rollback.
+    if (crankResults.park) {
+      const { vatID, info } = crankResults.park;
+      kdebug(`vat parked: ${JSON.stringify(info)}`);
+      parkVat(vatID, info);
     }
 
     if (crankResults.vatAdminMethargs) {
@@ -2046,12 +2168,21 @@ export default function buildKernel(
     }
   }
 
-  /** @returns {Generator<VatID>} */
+  /**
+   * Yields every live vat *except* parked ones. Parked vats have no worker, so
+   * reap (bringOutYourDead) and snapshot scheduling — the two consumers of this
+   * iterator — must skip them; forcing either would try to bring the evicted
+   * worker back online and panic.
+   *
+   * @returns {Generator<VatID>}
+   */
   function* getAllVatIds() {
     for (const [_, vatID] of kernelKeeper.getStaticVats()) {
+      if (kernelKeeper.vatIsParked(vatID)) continue;
       yield vatID;
     }
     for (const vatID of kernelKeeper.getDynamicVats()) {
+      if (kernelKeeper.vatIsParked(vatID)) continue;
       yield vatID;
     }
   }

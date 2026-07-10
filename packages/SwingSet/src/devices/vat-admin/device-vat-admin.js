@@ -89,7 +89,9 @@ bundleID before submitting to the kernel), or (temporarily) a full bundle.
  *  createByBundle: (bundle: Bundle, options: {}) => VatID
  *  createByBundleID: (bundleID: BundleID, options: {}) => VatID
  *  getBundleIDByName: (name: string) => string;
- *  upgradeVat: (vatID: string, bundleID: BundleID, _vatParameters: unknown, upgradeMessage: string) => UpgradeID;
+ *  upgradeVat: (vatID: string, bundleID: BundleID, _vatParameters: unknown, upgradeMessage: string, onUpgradeFailure?: 'rollback' | 'park') => UpgradeID;
+ *  restart: (vatID: VatID) => void
+ *  parkStatus: (vatID: VatID) => { parked: boolean, reason?: string, phase?: string, incarnation?: number }
  *  terminateWithFailure: (vatID: VatID, reason: {}) => void
  *  getBundleCap: (bundleID: BundleID) => BundleCap
  *  getNamedBundleCap: (name: string) => BundleCap
@@ -220,11 +222,15 @@ export function buildDevice(tools, endowments) {
           return returnFromInvoke(vatID);
         }
 
-        // D(devices.vatAdmin).upgradeVat(vatID, bundleID, vatParameters, upgradeMessage) -> upgradeID
+        // D(devices.vatAdmin).upgradeVat(vatID, bundleID, vatParameters,
+        //   upgradeMessage, onUpgradeFailure?) -> upgradeID
         if (method === 'upgradeVat') {
           const args = kunser(argsCapdata);
           assert(Array.isArray(args), 'upgradeVat() args array');
-          assert.equal(args.length, 4, 'upgradeVat() args length');
+          assert(
+            args.length === 4 || args.length === 5,
+            'upgradeVat() args length',
+          );
           const [vatID, bundleID, _vatParameters, upgradeMessage] = args;
           insistVatID(vatID);
           assert.typeof(bundleID, 'string', 'upgradeVat() bundleID');
@@ -238,6 +244,28 @@ export function buildDevice(tools, endowments) {
           const upgradeID = kunser(res);
           assert.typeof(upgradeID, 'string', 'upgradeVat gave non-upgradeID');
           return returnFromInvoke(upgradeID);
+        }
+
+        // D(devices.vatAdmin).restart(vatID) -> undefined
+        if (method === 'restart') {
+          const args = kunser(argsCapdata);
+          assert(Array.isArray(args), 'restart() args array');
+          assert.equal(args.length, 1, 'restart() args length');
+          const [vatID] = args;
+          insistVatID(vatID);
+          syscall.callKernelHook('restart', argsCapdata);
+          return returnFromInvoke(undefined);
+        }
+
+        // D(devices.vatAdmin).parkStatus(vatID) -> { parked, ... }
+        if (method === 'parkStatus') {
+          const args = kunser(argsCapdata);
+          assert(Array.isArray(args), 'parkStatus() args array');
+          assert.equal(args.length, 1, 'parkStatus() args length');
+          const [vatID] = args;
+          insistVatID(vatID);
+          const res = syscall.callKernelHook('parkStatus', argsCapdata);
+          return returnFromInvoke(kunser(res));
         }
 
         // D(devices.vatAdmin).terminateWithFailure(vatID, reason)

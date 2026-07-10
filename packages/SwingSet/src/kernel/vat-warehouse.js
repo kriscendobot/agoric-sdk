@@ -359,6 +359,11 @@ export function makeVatWarehouse({
     if (info) return info;
 
     kernelKeeper.vatIsAlive(vatID) || Fail`${q(vatID)}: not alive`;
+    // A parked vat's worker is intentionally evicted and must not be brought
+    // back online except via a resume (adminNode.upgrade/restart), which lifts
+    // the parked flag first. Reaching here for a still-parked vat means a
+    // delivery slipped past the park-queue routing; refuse rather than replay.
+    !kernelKeeper.vatIsParked(vatID) || Fail`${q(vatID)}: parked`;
     const vatKeeper = kernelKeeper.provideVatKeeper(vatID);
     const { source, options } = vatKeeper.getSourceAndOptions();
 
@@ -444,6 +449,10 @@ export function makeVatWarehouse({
       if (numPreloaded >= maxPreload) {
         break;
       }
+      // parked vats have no worker to preload; leave them offline
+      if (kernelKeeper.vatIsParked(vatID)) {
+        continue;
+      }
       logStartup(`provideVatKeeper for vat ${name} as vat ${vatID}`);
       await ensureVatOnline(vatID, recreate);
       numPreloaded += 1;
@@ -454,6 +463,10 @@ export function makeVatWarehouse({
     for await (const vatID of kernelKeeper.getDynamicVats()) {
       if (numPreloaded >= maxPreload) {
         break;
+      }
+      // parked vats have no worker to preload; leave them offline
+      if (kernelKeeper.vatIsParked(vatID)) {
+        continue;
       }
       logStartup(`provideVatKeeper for dynamic vat ${vatID}`);
       await ensureVatOnline(vatID, recreate);

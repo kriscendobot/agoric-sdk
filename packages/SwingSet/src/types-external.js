@@ -416,7 +416,7 @@ export {};
  * @typedef { { nodeOptions?: string[] } } OptNodeOptions
  * @typedef { BaseVatOptions & OptEnableDisavow & OptNodeOptions } StaticVatOptions
  *
- * @typedef { { vatParameters?: object, upgradeMessage?: string } } VatUpgradeOptions
+ * @typedef { { vatParameters?: object, upgradeMessage?: string, onUpgradeFailure?: 'rollback' | 'park' } } VatUpgradeOptions
  * @typedef { { incarnationNumber: number } } VatUpgradeResults
  */
 

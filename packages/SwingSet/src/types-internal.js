@@ -157,7 +157,8 @@ export {};
  *          } RunQueueEventCreateVat
  * @typedef { { type: 'upgrade-vat', vatID: VatID, upgradeID: string,
  *              bundleID: BundleID, vatParameters: SwingSetCapData,
- *              upgradeMessage: string } } RunQueueEventUpgradeVat
+ *              upgradeMessage: string,
+ *              onUpgradeFailure?: 'rollback' | 'park' } } RunQueueEventUpgradeVat
  * @typedef { { type: 'changeVatOptions', vatID: VatID, options: ChangeVatOptions } } RunQueueEventChangeVatOptions
  * @typedef { { type: 'startVat', vatID: VatID, vatParameters: SwingSetCapData } } RunQueueEventStartVat
  * @typedef { { type: 'dropExports', vatID: VatID, krefs: string[] } } RunQueueEventDropExports

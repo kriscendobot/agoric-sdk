@@ -337,6 +337,16 @@ export const upgradeSwingset = kernelStorage => {
     newVersion = 3;
   }
 
+  if (version < 4) {
+    // schema v4: add vats.parked = [] (park-on-failed-upgrade). Per-vat
+    // `${vatID}.parked` records and `${vatID}.parkQueue` entries are created
+    // lazily when a vat actually parks, so only the top-level array needs
+    // seeding here.
+    assert(!kvStore.has('vats.parked'));
+    kvStore.set('vats.parked', JSON.stringify([]));
+    newVersion = 4;
+  }
+
   const modified = newVersion !== undefined;
 
   if (upgradeEvents.length) {
