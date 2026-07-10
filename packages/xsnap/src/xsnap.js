@@ -50,13 +50,24 @@ const noop = freeze(() => {});
  * `XSNAP_WORKER` may override both modes.
  * `XSNAP_WORKER_DEBUG` overrides debug mode only.
  *
+ * The `variant` distinguishes the snapshot-compatible `'legacy'` xsnap train
+ * (the default, resolved from the existing unprefixed `xsnap-native` tree that
+ * the pinned-archive install populates) from the upgrade-capable `'latest'`
+ * train (resolved from a parallel `latest/xsnap-native` tree). Upstream
+ * Agoric/agoric-sdk#11031 expressed this split over git submodules; since
+ * #12477 replaced those submodules with pinned archives, populating the
+ * `latest/` tree is a follow-up (see this package's README # Compatibility and
+ * the fork PR body). Requesting `'latest'` before that wiring exists resolves a
+ * path with no binary.
+ *
  * @param {{
  *   os: string,
  *   debug: boolean,
  *   env: Record<string, string | undefined>,
+ *   variant?: 'legacy' | 'latest',
  * }} options
  */
-export function resolveXsnapWorkerPath({ os, debug, env }) {
+export function resolveXsnapWorkerPath({ os, debug, env, variant = 'legacy' }) {
   const platform = {
     Linux: 'lin',
     Darwin: 'mac',
@@ -74,9 +85,13 @@ export function resolveXsnapWorkerPath({ os, debug, env }) {
     return env.XSNAP_WORKER;
   }
 
+  // 'legacy' keeps the historical unprefixed path so existing prebuilt-archive
+  // installs are byte-for-byte unchanged; 'latest' lives under a sibling tree.
+  const variantPrefix = variant === 'latest' ? 'latest/' : '';
+
   return fileURLToPath(
     new URL(
-      `../xsnap-native/xsnap/build/bin/${platform}/${
+      `../${variantPrefix}xsnap-native/xsnap/build/bin/${platform}/${
         debug ? 'debug' : 'release'
       }/xsnap-worker`,
       import.meta.url,
@@ -189,6 +204,7 @@ const makeSnapshotLoaderWithPipe = async (
  * @property {'ignore' | 'inherit' | 'pipe'} [stderr]
  * @property {number} [meteringLimit]
  * @property {Record<string, string>} [env]
+ * @property {'legacy' | 'latest'} [variant]
  */
 export async function xsnap(options) {
   const {
@@ -207,9 +223,10 @@ export async function xsnap(options) {
     stderr = 'ignore',
     meteringLimit = DEFAULT_CRANK_METERING_LIMIT,
     env = process.env,
+    variant = 'legacy',
   } = options;
 
-  let bin = resolveXsnapWorkerPath({ os, debug, env });
+  let bin = resolveXsnapWorkerPath({ os, debug, env, variant });
 
   /** @type {PromiseKit<void>} */
   const vatExit = makePromiseKit();
