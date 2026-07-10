@@ -47,7 +47,7 @@ const enableKernelGC = true;
 export { DEFAULT_REAP_DIRT_THRESHOLD_KEY };
 
 // most recent DB schema version
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 // Kernel state lives in a key-value store supporting key retrieval by
 // lexicographic range. All keys and values are strings.
@@ -75,6 +75,7 @@ export const CURRENT_SCHEMA_VERSION = 3;
 // vat.nextID = $NN
 // vat.nextUpgradeID = $NN
 // vats.terminated = JSON([vatIDs..])
+// vats.parked = JSON([vatIDs..]) // reversible; worker evicted, all state retained
 // device.names = JSON([names..])
 // device.name.$NAME = $deviceID = d$NN
 // device.nextID = $NN
@@ -113,6 +114,9 @@ export const CURRENT_SCHEMA_VERSION = 3;
 // v$NN.reapDirt = JSON({ deliveries, gcKrefs, computrons }) // missing keys treated as zero
 // (leave room for v$NN.snapshotDirt and options.snapshotDirtThreshold for #6786)
 // v$NN.vatParameters = JSON(capdata) // missing for vats created/upgraded before #8947
+// v$NN.parked = JSON({ reason, phase, incarnation, crankNum }) // present iff vat is parked
+// v$NN.parkQueue = JSON([$head, $tail]) // deliveries deferred while parked (absent when empty)
+// v$NN.parkQueue.$NN = JSON(item)
 //
 // exclude from consensus
 // local.*
@@ -180,6 +184,9 @@ export const CURRENT_SCHEMA_VERSION = 3;
 //   * perform remediation for bug #9039
 // (after v3, does not get its own version)
 //   * `upgradeEvents` recognized, but omitted if empty
+// v4:
+//   * change `version` to `'4'`
+//   * add `vats.parked` with `[]` as initial value (park-on-failed-upgrade)
 
 /** @type {(s: string) => string[]} s */
 export function commaSplit(s) {
@@ -332,6 +339,9 @@ export default function makeKernelKeeper(
   // it a value here, and then populate it for real if we're dealing
   // with an up-to-date DB
   let terminatedVats = [];
+  // the parked-vats cache mirrors the terminated-vats cache; a parked
+  // vat is reversible (worker evicted, all state retained)
+  let parkedVats = [];
 
   const versionString = kvStore.get('version');
   const version = Number(versionString || '0');
@@ -352,6 +362,7 @@ export default function makeKernelKeeper(
   } else {
     // DB is up-to-date, so populate any caches we use
     terminatedVats = JSON.parse(getRequired('vats.terminated'));
+    parkedVats = JSON.parse(getRequired('vats.parked'));
   }
 
   /**
@@ -486,6 +497,7 @@ export default function makeKernelKeeper(
     kvStore.set('vat.nextID', `${FIRST_VAT_ID}`);
     kvStore.set('vat.nextUpgradeID', `1`);
     kvStore.set('vats.terminated', '[]');
+    kvStore.set('vats.parked', '[]');
     kvStore.set('device.names', '[]');
     kvStore.set('device.nextID', `${FIRST_DEVICE_ID}`);
     kvStore.set('ko.nextID', `${FIRST_OBJECT_ID}`);
@@ -1478,6 +1490,100 @@ export default function makeKernelKeeper(
     kvStore.set(`vats.terminated`, JSON.stringify(terminatedVats));
   }
 
+  // --- parked vats (reversible, sibling to terminated) ------------------
+  //
+  // A parked vat retains ALL of its durable state (vatstore, c-lists,
+  // transcript, snapshot, incarnation number); only its worker is evicted.
+  // `vatIsAlive` deliberately stays true for a parked vat — it is not dead,
+  // just quiescent — so `vatIsParked` is the predicate that distinguishes
+  // it. Deliveries routed to a parked vat are deferred into its park queue
+  // (below) instead of being delivered or splatted, so a parked vat is
+  // caller-observably indistinguishable from a very slow vat.
+
+  /**
+   * @param {string} vatID
+   * @param {{ reason: string, phase: 'upgrade' | 'replay' | 'explicit', incarnation?: number, crankNum?: number }} record
+   */
+  function markVatAsParked(vatID, record) {
+    insistVatID(vatID);
+    if (!parkedVats.includes(vatID)) {
+      parkedVats.push(vatID);
+      kvStore.set(`vats.parked`, JSON.stringify(parkedVats));
+    }
+    kvStore.set(`${vatID}.parked`, JSON.stringify(record));
+  }
+
+  function vatIsParked(vatID) {
+    return parkedVats.includes(vatID);
+  }
+
+  function getParkedVats() {
+    return parkedVats.slice();
+  }
+
+  /**
+   * @param {string} vatID
+   * @returns {{ reason: string, phase: string, incarnation?: number, crankNum?: number } | undefined}
+   */
+  function getParkedVatRecord(vatID) {
+    const raw = kvStore.get(`${vatID}.parked`);
+    return raw === undefined ? undefined : JSON.parse(raw);
+  }
+
+  function unparkVat(vatID) {
+    parkedVats = parkedVats.filter(id => id !== vatID);
+    kvStore.set(`vats.parked`, JSON.stringify(parkedVats));
+    kvStore.delete(`${vatID}.parked`);
+  }
+
+  // The per-vat park queue reuses the [head, tail] scheme of the run and
+  // acceptance queues, but is stored under `${vatID}.parkQueue` and carries
+  // no kernelStats metric (there is one queue per parked vat, not a single
+  // global queue). Moving an event into or out of the park queue is
+  // refcount-neutral, exactly like the acceptance<->run queue moves: the
+  // queued message continues to hold refcounts on the krefs it references.
+  // The head/tail marker is removed when the queue drains empty, so an
+  // unparked-and-resumed vat leaves no residual queue state.
+
+  function addToParkQueue(vatID, item) {
+    const key = `${vatID}.parkQueue`;
+    const [head, tail] = kvStore.has(key)
+      ? JSON.parse(getRequired(key))
+      : [1, 1];
+    kvStore.set(`${key}.${tail}`, JSON.stringify(item));
+    kvStore.set(key, JSON.stringify([head, tail + 1]));
+  }
+
+  function getNextParkQueueMsg(vatID) {
+    const key = `${vatID}.parkQueue`;
+    if (!kvStore.has(key)) {
+      return undefined;
+    }
+    const [head, tail] = JSON.parse(getRequired(key));
+    if (head < tail) {
+      const itemKey = `${key}.${head}`;
+      const item = JSON.parse(getRequired(itemKey));
+      kvStore.delete(itemKey);
+      if (head + 1 >= tail) {
+        // queue is now empty; drop the marker so no residual state lingers
+        kvStore.delete(key);
+      } else {
+        kvStore.set(key, JSON.stringify([head + 1, tail]));
+      }
+      return item;
+    }
+    return undefined;
+  }
+
+  function parkQueueLength(vatID) {
+    const key = `${vatID}.parkQueue`;
+    if (!kvStore.has(key)) {
+      return 0;
+    }
+    const [head, tail] = JSON.parse(getRequired(key));
+    return tail - head;
+  }
+
   /**
    * @param {PolicyOutputCleanupBudget} allowCleanup
    * @returns {RunQueueEventCleanupTerminatedVat | undefined}
@@ -2046,6 +2152,15 @@ export default function makeKernelKeeper(
     getFirstTerminatedVat,
     forgetTerminatedVat,
     nextCleanupTerminatedVatAction,
+
+    markVatAsParked,
+    vatIsParked,
+    getParkedVats,
+    getParkedVatRecord,
+    unparkVat,
+    addToParkQueue,
+    getNextParkQueueMsg,
+    parkQueueLength,
 
     allocateUpgradeID,
 

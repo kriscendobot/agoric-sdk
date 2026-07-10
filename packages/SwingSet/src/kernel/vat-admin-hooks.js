@@ -1,4 +1,4 @@
-import { assert } from '@endo/errors';
+import { assert, Fail } from '@endo/errors';
 import { kser, kunser } from '@agoric/kmarshal';
 import { insistVatID } from '../lib/id.js';
 
@@ -62,12 +62,22 @@ export function makeVatAdminHooks(tools) {
     },
 
     upgrade(argsCapData) {
-      // marshal([vatID, bundleID, vatParameters]) -> upgradeID
+      // marshal([vatID, bundleID, vatParameters, upgradeMessage,
+      //          onUpgradeFailure?]) -> upgradeID
       const args = kunser(argsCapData);
-      const [vatID, bundleID, vatParameters, upgradeMessage] = args;
+      const [vatID, bundleID, vatParameters, upgradeMessage, onUpgradeFailure] =
+        args;
       insistVatID(vatID);
       assert.typeof(bundleID, 'string');
       assert.typeof(upgradeMessage, 'string');
+      // onUpgradeFailure selects rollback (default, today's behavior) vs park
+      // (degrade the vat into a reversible parked state) when the upgrade fails
+      if (onUpgradeFailure !== undefined) {
+        assert(
+          onUpgradeFailure === 'rollback' || onUpgradeFailure === 'park',
+          `invalid onUpgradeFailure ${onUpgradeFailure}`,
+        );
+      }
       const marshalledVatParameters = kser(vatParameters);
       for (const kref of marshalledVatParameters.slots) {
         kernelKeeper.incrementRefCount(kref, 'upgrade-vat-event');
@@ -80,9 +90,47 @@ export function makeVatAdminHooks(tools) {
         bundleID,
         vatParameters: marshalledVatParameters,
         upgradeMessage,
+        onUpgradeFailure: onUpgradeFailure || 'rollback',
       };
       kernelKeeper.addToAcceptanceQueue(harden(ev));
       return harden(kser(upgradeID));
+    },
+
+    restart(argsCapData) {
+      // marshal([vatID]) -> undefined. Resume a parked vat by snapshot+replay:
+      // move its deferred deliveries back onto the acceptance queue
+      // (refcount-neutral) and lift the parked flag, so the next delivery
+      // re-creates the worker from its retained snapshot + transcript. If
+      // replay diverges again the vat re-parks (detection hook 2).
+      const [vatID] = kunser(argsCapData);
+      insistVatID(vatID);
+      kernelKeeper.vatIsParked(vatID) || Fail`vat ${vatID} is not parked`;
+      for (
+        let ev = kernelKeeper.getNextParkQueueMsg(vatID);
+        ev !== undefined;
+        ev = kernelKeeper.getNextParkQueueMsg(vatID)
+      ) {
+        kernelKeeper.addToAcceptanceQueue(harden(ev));
+      }
+      kernelKeeper.unparkVat(vatID);
+      return harden(kser(undefined));
+    },
+
+    parkStatus(argsCapData) {
+      // marshal([vatID]) -> { parked, reason, phase, incarnation }
+      const [vatID] = kunser(argsCapData);
+      insistVatID(vatID);
+      const parked = kernelKeeper.vatIsParked(vatID);
+      const record = parked
+        ? kernelKeeper.getParkedVatRecord(vatID)
+        : undefined;
+      const status = {
+        parked,
+        reason: record ? record.reason : undefined,
+        phase: record ? record.phase : undefined,
+        incarnation: record ? record.incarnation : undefined,
+      };
+      return harden(kser(status));
     },
 
     terminate(argsCapData) {

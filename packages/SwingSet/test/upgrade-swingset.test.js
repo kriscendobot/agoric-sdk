@@ -30,7 +30,7 @@ test('kernel refuses to run with out-of-date DB - v0', async t => {
   // kernelkeeper v0 schema, just deleting the version key and adding
   // 'initialized'
 
-  t.is(kvStore.get('version'), '3');
+  t.is(kvStore.get('version'), '4');
   kvStore.delete(`version`);
   kvStore.set('initialized', 'true');
   await commit();
@@ -53,7 +53,7 @@ test('kernel refuses to run with out-of-date DB - v1', async t => {
   // kernelkeeper v1 schema, by reducing the version key and removing
   // vats.terminated
 
-  t.is(kvStore.get('version'), '3');
+  t.is(kvStore.get('version'), '4');
   kvStore.set(`version`, '1');
   kvStore.delete('vats.terminated');
   await commit();
@@ -76,7 +76,7 @@ test('kernel refuses to run with out-of-date DB - v2', async t => {
   // kernelkeeper v2 schema, by reducing the version key and removing
   // vats.terminated
 
-  t.is(kvStore.get('version'), '3');
+  t.is(kvStore.get('version'), '4');
   kvStore.set(`version`, '2');
   await commit();
 
@@ -120,10 +120,11 @@ test('upgrade kernel state', async t => {
 
   t.true(kvStore.has('kernel.defaultReapDirtThreshold'));
 
-  t.is(kvStore.get('version'), '3');
+  t.is(kvStore.get('version'), '4');
   kvStore.delete('version'); // i.e. revert to v0
   kvStore.set('initialized', 'true');
   kvStore.delete('vats.terminated');
+  kvStore.delete('vats.parked');
   kvStore.delete(`kernel.defaultReapDirtThreshold`);
   kvStore.set(`kernel.defaultReapInterval`, '300');
 
@@ -211,10 +212,11 @@ test('upgrade non-reaping kernel state', async t => {
 
   t.true(kvStore.has('kernel.defaultReapDirtThreshold'));
 
-  t.is(kvStore.get('version'), '3');
+  t.is(kvStore.get('version'), '4');
   kvStore.delete('version'); // i.e. revert to v0
   kvStore.set('initialized', 'true');
   kvStore.delete('vats.terminated');
+  kvStore.delete('vats.parked');
   kvStore.delete(`kernel.defaultReapDirtThreshold`);
   kvStore.set(`kernel.defaultReapInterval`, 'never');
 
@@ -279,8 +281,9 @@ test('v3 upgrade', async t => {
   };
   const dccd = kser(disconnectionObject);
 
-  t.is(kvStore.get('version'), '3');
+  t.is(kvStore.get('version'), '4');
   kvStore.set('version', '2'); // revert to v2
+  kvStore.delete('vats.parked'); // v2 predates parked vats
   const runQueue = [];
   const acceptanceQueue = [];
   const nextID = Number(kvStore.get('kp.nextID'));
@@ -456,7 +459,11 @@ test('v3 upgrade', async t => {
   // the version is bumped, indicating we don't need to perform this
   // remediation again (because the bug is fixed and we won't be
   // creating similar corruption in the future)
-  data.version = '3';
+  data.version = '4';
+
+  // the v4 upgrade step re-seeds vats.parked (deleted above to simulate
+  // a genuine pre-v4 DB)
+  data['vats.parked'] = JSON.stringify([]);
 
   // no other state changes are expected
 

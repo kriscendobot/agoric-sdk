@@ -228,18 +228,30 @@ export function buildRootObject(vatPowers, _vatParameters, baggage) {
 
   async function upgradeVat(vatID, bundleID, options = {}) {
     assert(vatAdminDev, 'vatAdmin device not configured');
-    const { vatParameters, upgradeMessage = 'vat upgraded', ...rest } = options;
+    const {
+      vatParameters,
+      upgradeMessage = 'vat upgraded',
+      onUpgradeFailure = 'rollback',
+      ...rest
+    } = options;
     const leftovers = Object.keys(rest);
     if (leftovers.length) {
       const bad = leftovers.join(',');
       Fail`upgrade() received unknown options: ${q(bad)}`;
     }
     assert.typeof(upgradeMessage, 'string', 'upgradeMessage not a string');
+    // onUpgradeFailure: 'rollback' (default, today's behavior) re-creates the
+    // old incarnation if the upgrade fails; 'park' degrades the vat into a
+    // reversible parked state instead, resumable via a later upgrade/restart.
+    onUpgradeFailure === 'rollback' ||
+      onUpgradeFailure === 'park' ||
+      Fail`invalid onUpgradeFailure option: ${q(onUpgradeFailure)}`;
     const upgradeID = D(vatAdminDev).upgradeVat(
       vatID,
       bundleID,
       vatParameters,
       upgradeMessage,
+      onUpgradeFailure,
     );
     const [upgradeCompleteP, upgradeRR] = producePRR();
     pendingUpgrades.set(upgradeID, upgradeRR);
@@ -307,6 +319,21 @@ export function buildRootObject(vatPowers, _vatParameters, baggage) {
           Fail`vatAdmin.upgrade() requires a bundlecap: ${e}`;
         }
         return upgradeVat(state.vatID, bundleID, options);
+      },
+      restart({ state }) {
+        // Resume a parked vat by snapshot+replay (the maintainer's "restart"
+        // verb). A parked vat is never removed from runningVats, so the normal
+        // assertRunningVat guard still admits it. The kernel refuses the hook
+        // if the vat is not actually parked.
+        insistVatAdminServiceNotPaused();
+        assertRunningVat(state.vatID, 'restart');
+        return D(vatAdminDev).restart(state.vatID);
+      },
+      parkStatus({ state }) {
+        // Report whether the vat is parked (and why). Allowed on exiting vats
+        // too — a status query mints no authority.
+        assertRunningVat(state.vatID, 'parkStatus', true);
+        return D(vatAdminDev).parkStatus(state.vatID);
       },
       changeOptions({ state }, options) {
         insistVatAdminServiceNotPaused();
