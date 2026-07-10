@@ -215,13 +215,21 @@ const updateSources = async (sources, { fs, curl, tar }) => {
 /**
  * @param {ModdablePlatform} platform
  * @param {boolean} force
+ * @param {string} moddablePath
+ * @param {string} variantPrefix
  * @param {{
  *   fs: Pick<typeof import('fs'), 'existsSync'> &
  *     Pick<typeof promises, 'readFile' | 'writeFile'>,
  *   make: ReturnType<typeof makeCLI>,
  * }} io
  */
-const buildXsnap = async (platform, force, moddablePath, variantPrefix, { fs, make }) => {
+const buildXsnap = async (
+  platform,
+  force,
+  moddablePath,
+  variantPrefix,
+  { fs, make },
+) => {
   const pjson = await fs.readFile(asset('../package.json'), 'utf-8');
   const pkg = JSON.parse(pjson);
 
@@ -465,7 +473,10 @@ async function main(args, { env, stdout, spawn, fs, os }) {
         .catch(() => '');
       force = reportedVersion !== expectedVersion;
     }
-    await buildXsnap(platform, force, moddablePath, variantPrefix, { fs, make });
+    await buildXsnap(platform, force, moddablePath, variantPrefix, {
+      fs,
+      make,
+    });
   } else if (!hasBin) {
     throw Error(
       'XSnap has neither sources nor a pre-built binary. Docker? .dockerignore? npm files?',
