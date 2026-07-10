@@ -27,6 +27,8 @@ public
 # subrepos
 /packages/xsnap/moddable
 /packages/xsnap/xsnap-native
+/packages/xsnap/latest/moddable
+/packages/xsnap/latest/xsnap-native
 
 # copied from upstream
 /packages/xsnap/lib/object-inspect.js

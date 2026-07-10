@@ -42,16 +42,32 @@ the env file.
 
 ## Package install behavior
 
-`@agoric/xsnap` postinstall now installs prebuilt binaries from GitHub releases
-instead of compiling native sources locally.
+`@agoric/xsnap` postinstall provisions **both** worker variants (see
+# Compatibility):
 
-Optional environment overrides:
+- The **`legacy`** variant installs a prebuilt binary from GitHub releases into
+  the unprefixed `xsnap-native/` tree (`yarn install:prebuilt`). This is the
+  snapshot-compatible engine and is byte-for-byte the same as prior installs.
+- The **`latest`** variant compiles the pinned Moddable engine from source into
+  the parallel `latest/xsnap-native/` tree (`yarn build:latest`, driven by
+  `src/build.js --variant latest`). Its Moddable/xsnap-native commit pins live in
+  `build.env`.
+
+The two trees never overlap: `resolveXsnapWorkerPath` in `src/xsnap.js` maps
+`variant: 'legacy'` to the unprefixed tree and `variant: 'latest'` to the
+`latest/` tree.
+
+Optional environment overrides for the prebuilt (legacy) install:
 
 - `XSNAP_BINARY_VERSION` (default: package version)
 - `XSNAP_BINARY_REPO` (default: `Agoric/xsnap-worker-binaries`)
 - `XSNAP_BINARY_BASE_URL` (advanced override)
 - `XSNAP_BINARY_MANIFEST_SHA256` (required trust anchor for unpinned versions)
 - `XSNAP_CACHE_DIR` (advanced override for cached downloads)
+
+The from-source (latest) build honors `MODDABLE_COMMIT_HASH` /
+`XSNAP_NATIVE_COMMIT_HASH` (and matching `_URL` / `_ARCHIVE_URL`) env overrides,
+falling back to `build.env` pins.
 
 Some time later, possibly on a different computer…
 

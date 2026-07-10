@@ -16,17 +16,12 @@ const { freeze } = Object;
 /** @param {string} path */
 const asset = path => fileURLToPath(new URL(path, import.meta.url));
 
-/** @param {Promise<unknown>} p */
-const isRejected = p =>
-  p.then(
-    () => false,
-    () => true,
-  );
-
 /** @typedef {{ path: string, make?: string }} ModdablePlatform */
 
 const ModdableSDK = {
-  MODDABLE: asset('../moddable'),
+  // The Moddable/xsnap-native source trees are variant-specific and resolved
+  // per-build in main() (see variantPrefix); see resolveXsnapWorkerPath in
+  // xsnap.js for the matching binary-path split.
   /** @type { Record<string, ModdablePlatform>} */
   platforms: {
     Linux: { path: 'lin' },
@@ -226,7 +221,7 @@ const updateSources = async (sources, { fs, curl, tar }) => {
  *   make: ReturnType<typeof makeCLI>,
  * }} io
  */
-const buildXsnap = async (platform, force, { fs, make }) => {
+const buildXsnap = async (platform, force, moddablePath, variantPrefix, { fs, make }) => {
   const pjson = await fs.readFile(asset('../package.json'), 'utf-8');
   const pkg = JSON.parse(pjson);
 
@@ -248,7 +243,7 @@ const buildXsnap = async (platform, force, { fs, make }) => {
   for (const goal of ModdableSDK.buildGoals) {
     await make.run(
       [
-        `MODDABLE=${ModdableSDK.MODDABLE}`,
+        `MODDABLE=${moddablePath}`,
         `GOAL=${goal}`,
         // Any other configuration variables that affect the build output
         // should be placed in `configEnvs` to force a rebuild if they change
@@ -258,7 +253,7 @@ const buildXsnap = async (platform, force, { fs, make }) => {
         'xsnap-worker.mk',
       ],
       {
-        cwd: `xsnap-native/xsnap/makefiles/${platform.path}`,
+        cwd: `${variantPrefix}xsnap-native/xsnap/makefiles/${platform.path}`,
       },
     );
   }
@@ -286,6 +281,21 @@ async function main(args, { env, stdout, spawn, fs, os }) {
     throw Error(`xsnap does not support OS ${osType}`);
   }
 
+  // The `--variant` selects which xsnap train this build produces and, with it,
+  // the source/binary subtree. 'legacy' (the default) builds the unprefixed
+  // `../{moddable,xsnap-native}` trees — the snapshot-compatible engine also
+  // served by the prebuilt install. 'latest' builds a parallel `../latest/…`
+  // subtree, matching resolveXsnapWorkerPath's split in xsnap.js. The pins are
+  // read from `build.<variant>.env` when present, otherwise `build.env`.
+  const variantIndex = args.indexOf('--variant');
+  const variant =
+    variantIndex >= 0 && args[variantIndex + 1] === 'latest'
+      ? 'latest'
+      : 'legacy';
+  const variantPrefix = variant === 'latest' ? 'latest/' : '';
+  const moddablePath = asset(`../${variantPrefix}moddable`);
+  const xsnapNativePath = asset(`../${variantPrefix}xsnap-native`);
+
   const curl = makeCLI('curl', { spawn });
   const tar = makeCLI('tar', { spawn });
   const make = makeCLI(platform.make || 'make', { spawn });
@@ -293,12 +303,16 @@ async function main(args, { env, stdout, spawn, fs, os }) {
   /** @type {Record<string, string>} */
   let pinnedEnvFromFile = {};
   let hasPinnedEnvFile = false;
-  try {
-    const text = await fs.readFile(asset('../build.env'), 'utf-8');
-    pinnedEnvFromFile = parseEnvText(text);
-    hasPinnedEnvFile = true;
-  } catch (_err) {
-    // Allow explicit environment overrides to run without a checked-in build.env.
+  for (const pinFile of [`../build.${variant}.env`, '../build.env']) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const text = await fs.readFile(asset(pinFile), 'utf-8');
+      pinnedEnvFromFile = parseEnvText(text);
+      hasPinnedEnvFile = true;
+      break;
+    } catch (_err) {
+      // Try the next candidate; explicit env overrides can run without a file.
+    }
   }
 
   const moddableUrl =
@@ -331,7 +345,7 @@ async function main(args, { env, stdout, spawn, fs, os }) {
   const sources = [
     {
       url: moddableUrl,
-      path: ModdableSDK.MODDABLE,
+      path: moddablePath,
       commitHash: moddableCommitHash,
       archiveUrl:
         env.MODDABLE_ARCHIVE_URL ||
@@ -340,7 +354,7 @@ async function main(args, { env, stdout, spawn, fs, os }) {
     },
     {
       url: xsnapNativeUrl,
-      path: asset('../xsnap-native'),
+      path: xsnapNativePath,
       commitHash: xsnapNativeCommitHash,
       archiveUrl:
         env.XSNAP_NATIVE_ARCHIVE_URL ||
@@ -352,7 +366,7 @@ async function main(args, { env, stdout, spawn, fs, os }) {
   // We build both release and debug executables, so checking for only the
   // former is fine.
   const bin = asset(
-    `../xsnap-native/xsnap/build/bin/${platform.path}/release/xsnap-worker`,
+    `../${variantPrefix}xsnap-native/xsnap/build/bin/${platform.path}/release/xsnap-worker`,
   );
   /** @type {Map<string, SourceDescriptor>} */
   const sourceByPrefix = new Map(
@@ -385,7 +399,7 @@ async function main(args, { env, stdout, spawn, fs, os }) {
   };
 
   const hasBin = fs.existsSync(bin);
-  const hasSource = fs.existsSync(asset('../moddable/xs/includes/xs.h'));
+  const hasSource = fs.existsSync(`${moddablePath}/xs/includes/xs.h`);
   const hasRepoGit = fs.existsSync(asset('../../../.git'));
   const hasExplicitOverride = prefix => {
     const source = sourceByPrefix.get(prefix);
@@ -436,14 +450,22 @@ async function main(args, { env, stdout, spawn, fs, os }) {
   // If we now have source files, (re)build from them.
   // Otherwise, require presence of a previously-built executable.
   if (hasSource || shouldFetchSources) {
-    // Force a rebuild if for some reason the binary is out of date
-    // since the make checks may not always detect that situation.
-    const npm = makeCLI('npm', { spawn });
-    const force = await (!hasBin ||
-      isRejected(
-        npm.run(['run', '-s', 'check-version'], { cwd: asset('..') }),
-      ));
-    await buildXsnap(platform, force, { fs, make });
+    // Force a rebuild if the binary is missing or reports a version other than
+    // this package's — checked against THIS variant's own subtree so a latest
+    // build is never fooled by an up-to-date legacy binary (or vice versa).
+    let force = !hasBin;
+    if (!force) {
+      const versionScript = makeCLI(asset('../scripts/get_xsnap_version.sh'), {
+        spawn,
+      });
+      const pjson = await fs.readFile(asset('../package.json'), 'utf-8');
+      const expectedVersion = JSON.parse(pjson).version;
+      const reportedVersion = await versionScript
+        .pipe([variant], { cwd: asset('..') })
+        .catch(() => '');
+      force = reportedVersion !== expectedVersion;
+    }
+    await buildXsnap(platform, force, moddablePath, variantPrefix, { fs, make });
   } else if (!hasBin) {
     throw Error(
       'XSnap has neither sources nor a pre-built binary. Docker? .dockerignore? npm files?',
