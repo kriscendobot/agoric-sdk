@@ -6,7 +6,9 @@ worker, using Moddable’s XS JavaScript engine.
 Xsnap provides a Node.js API for controlling Xsnap workers.
 
 ```js
-const worker = await xsnap();
+const worker = await xsnap({
+  variant: 'latest', // default: 'legacy'
+});
 await worker.evaluate(`
   // Incrementer, running on XS.
   function handleCommand(message) {
@@ -40,16 +42,32 @@ the env file.
 
 ## Package install behavior
 
-`@agoric/xsnap` postinstall now installs prebuilt binaries from GitHub releases
-instead of compiling native sources locally.
+`@agoric/xsnap` postinstall provisions **both** worker variants (see
+# Compatibility):
 
-Optional environment overrides:
+- The **`legacy`** variant installs a prebuilt binary from GitHub releases into
+  the unprefixed `xsnap-native/` tree (`yarn install:prebuilt`). This is the
+  snapshot-compatible engine and is byte-for-byte the same as prior installs.
+- The **`latest`** variant compiles the pinned Moddable engine from source into
+  the parallel `latest/xsnap-native/` tree (`yarn build:latest`, driven by
+  `src/build.js --variant latest`). Its Moddable/xsnap-native commit pins live in
+  `build.env`.
+
+The two trees never overlap: `resolveXsnapWorkerPath` in `src/xsnap.js` maps
+`variant: 'legacy'` to the unprefixed tree and `variant: 'latest'` to the
+`latest/` tree.
+
+Optional environment overrides for the prebuilt (legacy) install:
 
 - `XSNAP_BINARY_VERSION` (default: package version)
 - `XSNAP_BINARY_REPO` (default: `Agoric/xsnap-worker-binaries`)
 - `XSNAP_BINARY_BASE_URL` (advanced override)
 - `XSNAP_BINARY_MANIFEST_SHA256` (required trust anchor for unpinned versions)
 - `XSNAP_CACHE_DIR` (advanced override for cached downloads)
+
+The from-source (latest) build honors `MODDABLE_COMMIT_HASH` /
+`XSNAP_NATIVE_COMMIT_HASH` (and matching `_URL` / `_ARCHIVE_URL`) env overrides,
+falling back to `build.env` pins.
 
 Some time later, possibly on a different computer…
 
@@ -79,6 +97,39 @@ The parent and child communicate using "commands".
   respond to commands from the XS child.
 
 ![state diagram](doc/xsnap-states.svg)
+
+# Compatibility
+
+The `variant` is either `"legacy"` or `"latest"`.
+For purposes of backward-compatibility, the `"legacy"` variant ensures
+that all future versions of `xsnap` will read snapshots created by any
+prior version produced by the `"legacy"` variant.
+
+By contrast, the `"latest"` variant should not be asked to read snapshots
+produced by any previous version of `xsnap`, and in exchange, may have
+new features and changes in behavior including observably different behavior
+due to bug fixes.
+
+## Testing both variants
+
+The test suite runs against one variant per invocation, selected by the
+`XSNAP_TEST_VARIANT` environment variable (`legacy` | `latest`, default
+`legacy`):
+
+```sh
+yarn test                          # default 'legacy' lane (consensus engine)
+XSNAP_TEST_VARIANT=latest yarn test  # 'latest' lane (XS 16.7.1 / Moddable 5.5.0)
+```
+
+The switch (see `test/message-tools.js` `TEST_VARIANT`) selects **both** which
+worker binary the tests spawn and which golden set the engine-sensitive tests
+assert against. The default `legacy` lane is byte-stable with master: a plain
+`yarn test` reproduces the committed consensus-engine goldens with zero churn
+(including the ava snapshot-hash goldens in `test/snapshots/`, which the `latest`
+lane deliberately does **not** overwrite — it asserts its own recorded hashes
+instead). Where the `latest` engine's metering legitimately diverges (the
+run-time metering-switch precision case), that test carries an honest
+`test.failing` marker under `latest` only.
 
 <!-- FIXME this stopped working some time ago (was never in CI)
 https://github.com/Agoric/agoric-sdk/issues/9955

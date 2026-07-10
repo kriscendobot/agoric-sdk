@@ -14,6 +14,13 @@
         "**/docs",
         "**/vendor",
         "**/*.umd.js",
+        // Vendored Moddable/XS engine source, populated from pinned archives by
+        // the xsnap from-source build. Not our code; already excluded from
+        // tsconfig.build.json and .prettierignore.
+        "packages/xsnap/moddable",
+        "packages/xsnap/xsnap-native",
+        "packages/xsnap/latest/moddable",
+        "packages/xsnap/latest/xsnap-native",
         // The following packages are excluded from quickcheck because they change rarely.
         "packages/benchmark",
         "packages/create-dapp",
