@@ -59,6 +59,8 @@ export default [
       'packages/cosmic-proto/scripts/',
       'packages/xsnap/moddable/',
       'packages/xsnap/xsnap-native/',
+      'packages/xsnap/latest/moddable/',
+      'packages/xsnap/latest/xsnap-native/',
       // Cosmic-swingset specific ignores
       'packages/cosmic-swingset/t[0-9]/',
       'packages/cosmic-swingset/t[0-9].*/',
