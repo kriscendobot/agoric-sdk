@@ -110,6 +110,27 @@ produced by any previous version of `xsnap`, and in exchange, may have
 new features and changes in behavior including observably different behavior
 due to bug fixes.
 
+## Testing both variants
+
+The test suite runs against one variant per invocation, selected by the
+`XSNAP_TEST_VARIANT` environment variable (`legacy` | `latest`, default
+`legacy`):
+
+```sh
+yarn test                          # default 'legacy' lane (consensus engine)
+XSNAP_TEST_VARIANT=latest yarn test  # 'latest' lane (XS 16.7.1 / Moddable 5.5.0)
+```
+
+The switch (see `test/message-tools.js` `TEST_VARIANT`) selects **both** which
+worker binary the tests spawn and which golden set the engine-sensitive tests
+assert against. The default `legacy` lane is byte-stable with master: a plain
+`yarn test` reproduces the committed consensus-engine goldens with zero churn
+(including the ava snapshot-hash goldens in `test/snapshots/`, which the `latest`
+lane deliberately does **not** overwrite — it asserts its own recorded hashes
+instead). Where the `latest` engine's metering legitimately diverges (the
+run-time metering-switch precision case), that test carries an honest
+`test.failing` marker under `latest` only.
+
 <!-- FIXME this stopped working some time ago (was never in CI)
 https://github.com/Agoric/agoric-sdk/issues/9955
 # xsrepl
