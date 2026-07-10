@@ -45,9 +45,15 @@ test('meter details', async t => {
     meterUsage: { meterType, ...meters },
   } = result;
 
+  // Goldens track the DEFAULT ('legacy') xsnap engine (XS 13.3.0), which is the
+  // consensus engine CI runs; they must stay byte-stable with master. The
+  // 'latest' variant (XS 16.7.1 / Moddable 5.5.0) meters differently — it
+  // reports { compute: 1_300_705, currentHeapCount: 104_407 } here — but that
+  // belongs to a variant-gated 'latest' test lane, not these committed goldens.
+  // See xst-gauntlet (issue-kriskowal-garden-33) Leg 2.
   t.like(
     meters,
-    { compute: 1_300_705, allocate: 42_074_144, currentHeapCount: 104_407 },
+    { compute: 1_380_185, allocate: 42_074_144, currentHeapCount: 103_930 },
     'compute, allocate meters should be stable; update METER_TYPE?',
   );
 
@@ -171,7 +177,8 @@ test('metering regex - REDOS', async t => {
   'aaaaaaaaa!'.match(/^(([a-z])+.)+/)
   `);
   const { meterUsage: meters } = result;
-  t.like(meters, { compute: 127 });
+  // Legacy (XS 13.3.0) golden; the 'latest' engine reports compute: 127.
+  t.like(meters, { compute: 140 });
 });
 
 test('meter details are still available with no limit', async t => {
@@ -207,12 +214,12 @@ test('high resolution timer', async t => {
   t.is(typeof milliseconds, 'number');
 });
 
-// This test fails with a small discrepancy between noUnMeteredCompute and
-// someUnMeterCompute.
-// TODO ascertain whether some difference between these values is expected.
-// They were certainly the same in Moddable 3.9.2, but also the precision
-// of metering has increased.
-test.failing('metering can be switched off / on at run-time', async t => {
+// On the default 'legacy' engine (XS 13.3.0 / Moddable 3.9.2) noUnMeteredCompute
+// and someUnMeteredCompute agree, so this passes. On the 'latest' engine
+// (XS 16.7.1 / Moddable 5.5.0) metering precision increased and the two diverge
+// by a small amount — under 'latest' this must be marked `test.failing`. That
+// belongs to the variant-gated 'latest' lane (xst-gauntlet Leg 2).
+test('metering can be switched off / on at run-time', async t => {
   const opts = options(io);
   const vat = await xsnap(opts);
   t.teardown(() => vat.terminate());
