@@ -37,26 +37,48 @@ There are two channels, merged and applied together:
 ### Activating the a3p rehearsal
 
 It ships **empty** (a no-op — the chain boots normally and nothing is promoted),
-because the target vatID must be observed from a real deployment first. To
-activate the rehearsal covered by `test/critical-vat.test.js`:
+because the target vatID must be observed from a real deployment first.
 
-1. Run the `g:ymax1` proposal and read the `garden#29 ymax1 deterministic vatID`
-   line it logs (see `g:ymax1/test/ymax1.test.js`). Because deployment is
-   deterministic, that vatID is stable across runs.
-2. Pin it here:
+Two maintainer decisions from garden#29 (mhofman, 2026-07-10) shape the target:
 
-   ```json
-   "vatOptionUpdates": [{ "vatID": "vNNN", "critical": true }]
-   ```
+- **The target need not be ymax.** "Any 'do-nothing' contract we deploy and mark
+  as critical is fine" — the rehearsal only needs *some* live dynamic contract vat
+  to promote, so it does not have to couple to the `g:ymax1` suite.
+- **Leaving the target vat running through the upgrade is fine** — that mirrors
+  what actually happened on mainnet (a live ymax1 across an upgrade), so the
+  earlier "must not leave ymax alive" hesitation is resolved: keeping the target
+  vat alive into this upgrade is the intended shape, not a hazard.
 
-   If the logged vatID ever changes, this pin must be updated to match;
-   `critical-vat.test.js` cross-checks the pin against the live ymax1 vatID and
-   fails loudly on drift.
-3. Ensure a **live** ymax1 vat survives into this upgrade: `g:ymax1` currently
-   terminates ymax1 in its final step ("leave state as we found it"), so that
-   cleanup must be dropped (or the rehearsal must start its own vat) for the
-   promotion to have a target — otherwise `applyVatOptionUpdates` will fail its
-   live-dynamic-vat guard.
+`test/critical-vat.test.js` is therefore **target-agnostic**: it drives purely off
+the pinned vatID(s) and does not hard-code the ymax label. A pin may carry an
+optional `label` for a human-readable cross-check.
 
-With those in place, `critical-vat.test.js` asserts the vat's
-`options().critical` is `true` after the upgrade.
+To activate the rehearsal, pick a target and pin it:
+
+- **Recommended — a self-contained "do-nothing" contract.** Start a trivial
+  contract vat in an earlier step and leave it running, then pin its vatID here.
+  This keeps the rehearsal self-contained and does not perturb `g:ymax1`.
+- **Alternative — reuse the live ymax1.** Run `g:ymax1`, read the
+  `garden#29 ymax1 deterministic vatID` line it logs (see
+  `g:ymax1/test/ymax1.test.js`), and pin that. Because deployment is
+  deterministic, the vatID is stable across runs. This path additionally requires
+  dropping `g:ymax1`'s final terminate step so a live ymax1 survives into the
+  upgrade (per the decision above, leaving it running is acceptable) — otherwise
+  `applyVatOptionUpdates` fails its live-dynamic-vat guard.
+
+Either way, pin the observed vatID (and, optionally, its label) here:
+
+```json
+"vatOptionUpdates": [{ "vatID": "vNNN", "critical": true, "label": "ymax1" }]
+```
+
+If the observed vatID ever changes, this pin must be updated to match; when a
+`label` is given, `critical-vat.test.js` cross-checks the pin against the live
+vats carrying that label and fails loudly on drift.
+
+With a pin in place, `critical-vat.test.js` asserts the vat's `options().critical`
+is `true` after the upgrade.
+
+> Note: the concrete vatID must be **observed from a real synthetic-chain run**
+> (it is not in vstorage; it is read from the chain's swing-store), so activation
+> requires one Docker-capable a3p run to produce the value to pin.
