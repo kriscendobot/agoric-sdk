@@ -63,9 +63,9 @@ test('garden#29: pinned vat is promoted to critical at the software upgrade', as
       const liveIDs = live.map(v => v.vatID);
       t.true(
         liveIDs.includes(vatID),
-        `pinned vatID ${vatID} must be a live vat labelled ${label}; found ${
-          JSON.stringify(liveIDs)
-        } — update n:upgrade-next package.json upgradeInfo.vatOptionUpdates if deployment changed it`,
+        `pinned vatID ${vatID} must be a live vat labelled ${label}; found ${JSON.stringify(
+          liveIDs,
+        )} — update n:upgrade-next package.json upgradeInfo.vatOptionUpdates if deployment changed it`,
       );
     }
 
