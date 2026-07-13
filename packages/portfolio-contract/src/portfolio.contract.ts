@@ -842,9 +842,16 @@ export const contract = async (
         // OpenPortfolio + Grant flow into one user signature. Reuses the exact
         // authorization and validation of a standalone Grant (sourceAccountId
         // is set just above; grant enforces `allocation === true`). grant is
-        // promptly resolved, so it is safe to await before starting the flow;
-        // doing it first means a rejected grant fails the whole operation
-        // rather than leaving a portfolio open without its intended delegation.
+        // promptly resolved, so it is safe to await here.
+        //
+        // On atomicity: the portfolio kit is already minted and durably
+        // registered above (makeNextPortfolioKit advanced the id counter), so a
+        // rejected grant does NOT undo portfolio creation — it orphans a
+        // registered-but-unfunded shell portfolio. What awaiting the grant
+        // before orchFns2.openPortfolio does buy is that a rejected grant
+        // aborts before the funding flow starts: no deposit is pulled and no
+        // funded, delegated portfolio results. Funding and delegation are the
+        // atomic pair; portfolio-kit creation is not.
         await vowTools.asPromise(
           // cast from EIP-712 string to agoric1 Bech32 address, as in the
           // standalone Grant handler; the string is looked up in NamesByAddress.
