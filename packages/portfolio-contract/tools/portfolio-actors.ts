@@ -466,7 +466,10 @@ export const makeEvmTrader = ({
           permissions: PortfolioPermissions,
         ) {
           assert(contractRepresentative, 'missing contract representative');
-          mustMatch(harden({ ...permissions }), PortfolioPermissionsEIP712Shape);
+          mustMatch(
+            harden({ ...permissions }),
+            PortfolioPermissionsEIP712Shape,
+          );
           const witness = getYmaxWitness('OpenPortfolioWithGrant', {
             allocations,
             accountHolder: granteeAddress,
