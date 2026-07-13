@@ -5,8 +5,8 @@
   gather_facts: yes
   strategy: free
   vars:
-    - service: ag-chain-cosmos
-    - data: '{{ SETUP_HOME }}/{{ service }}/data'
+    service: ag-chain-cosmos
+    data: '{{ SETUP_HOME }}/{{ service }}/data'
   roles:
     - fetch-cosmos
     - cosmos-clone-config

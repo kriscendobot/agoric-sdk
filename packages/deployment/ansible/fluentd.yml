@@ -8,7 +8,7 @@
   gather_facts: no
   strategy: free
   vars:
-    - service: 'ag-chain-cosmos'
-    - units: "{{ hostvars[inventory_hostname]['units'] | default([service + '.service']) }}"
+    service: 'ag-chain-cosmos'
+    units: "{{ hostvars[inventory_hostname]['units'] | default([service + '.service']) }}"
   roles:
     - fluentd
