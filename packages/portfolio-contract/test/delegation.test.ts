@@ -476,3 +476,64 @@ test('Pete may open a portfolio and grant control in a single signed message', a
     Compound_Arbitrum: 50n,
   });
 });
+
+test('open+grant with an unregistered accountHolder aborts and pulls no deposit', async t => {
+  const deployed = await deploy(t);
+
+  // Deliberately do NOT register a depositFacet for PETE_AGENT. A standalone
+  // Grant surfaces this NamesByAddress miss non-fatally (see the "Grant
+  // delivery failure is surfaced ..." test above); in the combined flow the
+  // grant is awaited inside openPortfolioFromEVM, so the same caller-triggerable
+  // failure aborts the whole open+grant operation.
+  const peteKit = await makeEvmTraderKit(deployed, {
+    privateKey: evmTrader0PrivateKey,
+  });
+  const peteArbitrum = peteKit.evmTrader.forChain('Arbitrum');
+  const walletAddress = peteKit.evmAccount.address;
+
+  await t.throwsAsync(
+    peteArbitrum.openPortfolioWithGrant(
+      [
+        { instrument: 'Aave_Arbitrum', portion: 60n },
+        { instrument: 'Compound_Arbitrum', portion: 40n },
+      ],
+      10_000_000n,
+      PETE_AGENT,
+      harden({ allocation: true }),
+    ),
+    { message: /"nameKey" not found: "agoric1petesAgent"/ },
+    'combined open+grant rejects when the accountHolder is not registered',
+  );
+  await eventLoopIteration();
+
+  // The failed message is recorded on the wallet as an error, not silently
+  // swallowed.
+  const walletStatus = (await peteKit.readPublished(
+    `evmWallets.${walletAddress}`,
+  )) as { status: string; error?: string };
+  t.is(walletStatus.status, 'error');
+  t.regex(walletStatus.error || '', /"nameKey" not found: "agoric1petesAgent"/);
+
+  // No active/funded portfolio surfaced: because grant is awaited before
+  // orchFns2.openPortfolio, the funding flow never started, so no deposit was
+  // pulled and no portfolio path was ever published for the wallet. (The
+  // funding flow is what publishes the wallet's portfolio list, so its absence
+  // is the observable proof no deposit moved.)
+  await t.throwsAsync(
+    peteKit.readPublished(`evmWallets.${walletAddress}.portfolio`),
+    { message: /no data at path/ },
+    'no portfolio path is published for the wallet after the aborted open+grant',
+  );
+
+  // No active delegation results: exactly as with a standalone Grant delivery
+  // failure, the agent is published as `revoked`, not `active`, so the orphaned
+  // shell portfolio carries no usable delegation.
+  const agents = await peteKit.readPublished('portfolios.portfolio0.agents');
+  t.deepEqual(agents, {
+    agent1: {
+      grantee: PETE_AGENT,
+      permissions: { allocation: true },
+      state: 'revoked',
+    },
+  });
+});
