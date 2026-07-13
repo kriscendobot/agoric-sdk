@@ -797,7 +797,8 @@ export const contract = async (
     async openPortfolioFromEVM(
       data:
         | YmaxOperationDetails<'OpenPortfolio'>['data']
-        | YmaxOperationDetails<'OpenPortfolioWithAutoFeatures'>['data'],
+        | YmaxOperationDetails<'OpenPortfolioWithAutoFeatures'>['data']
+        | YmaxOperationDetails<'OpenPortfolioWithGrant'>['data'],
       permitDetails: PermitDetails,
     ): Promise<{
       storagePath: string;
@@ -834,6 +835,24 @@ export const contract = async (
       if ('features' in data && data.features !== undefined) {
         // setAutoFeatures is promptly resolved
         await vowTools.asPromise(kit.evmHandler.setAutoFeatures(data.features));
+      }
+      if ('accountHolder' in data && data.accountHolder !== undefined) {
+        // Combined open + grant: delegate control to the automation agent in
+        // the same signed message, collapsing the former two-step
+        // OpenPortfolio + Grant flow into one user signature. Reuses the exact
+        // authorization and validation of a standalone Grant (sourceAccountId
+        // is set just above; grant enforces `allocation === true`). grant is
+        // promptly resolved, so it is safe to await before starting the flow;
+        // doing it first means a rejected grant fails the whole operation
+        // rather than leaving a portfolio open without its intended delegation.
+        await vowTools.asPromise(
+          // cast from EIP-712 string to agoric1 Bech32 address, as in the
+          // standalone Grant handler; the string is looked up in NamesByAddress.
+          kit.evmHandler.grant(
+            data.accountHolder as Bech32Address,
+            data.permissions,
+          ),
+        );
       }
 
       const seat = zcf.makeEmptySeatKit().zcfSeat;
