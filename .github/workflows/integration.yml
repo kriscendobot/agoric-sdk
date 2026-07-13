@@ -186,10 +186,16 @@ jobs:
     needs: pre_check
     if: needs.pre_check.outputs.should_run == 'true'
 
-    # Fork CI: retargeted off the Depot runner to GitHub-hosted compute. This job
-    # used Depot only as a bigger runner (no depot/* actions), so a plain
-    # ubuntu-latest suffices; the deployment test drives docker directly.
-    runs-on: ubuntu-latest
+    # Fork CI: retargeted off the Depot runner (was depot-ubuntu-22.04-16) to a
+    # GitHub-hosted runner. This job used Depot only as a bigger runner (no
+    # depot/* actions); the deployment test drives docker directly. Pin to
+    # ubuntu-22.04 (NOT ubuntu-latest/24.04): this job builds the golang
+    # `agcosmosdaemon.node` native addon on the host and bind-mounts it into
+    # node:22-bookworm validator containers (GLIBCXX <= 3.4.30). A 24.04 host
+    # links the addon against GLIBCXX_3.4.32, so `ag-chain-cosmos init` fails
+    # inside the container with `GLIBCXX_3.4.32 not found`. 22.04 keeps the host
+    # libstdc++ in step with bookworm, as the original 22.04 Depot runner did.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
         with:
