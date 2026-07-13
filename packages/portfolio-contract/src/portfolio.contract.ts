@@ -841,8 +841,20 @@ export const contract = async (
         // the same signed message, collapsing the former two-step
         // OpenPortfolio + Grant flow into one user signature. Reuses the exact
         // authorization and validation of a standalone Grant (sourceAccountId
-        // is set just above; grant enforces `allocation === true`). grant is
-        // promptly resolved, so it is safe to await here.
+        // is set just above; grant enforces `allocation === true`).
+        //
+        // Why asPromise is safe here: grant resolves promptly only because
+        // delivery targets an already-provisioned account — deliverDelegation
+        // hands the invitation to the grantee's existing smart wallet via the
+        // postal service (a NamesByAddress lookup), which settles synchronously.
+        // A grantee with no smart wallet is a caller-triggerable miss: the
+        // lookup rejects (still promptly), and that rejection propagates out of
+        // this await and aborts the whole open. That fail-closed behavior is
+        // intended, not incidental — a non-existent grantee must fail the open
+        // rather than leave a portfolio open without the delegation it was
+        // signed to carry (the same address must already exist for a standalone
+        // Grant to succeed). Covered by the "open+grant with an unregistered
+        // accountHolder aborts and pulls no deposit" test.
         //
         // On atomicity: the portfolio kit is already minted and durably
         // registered above (makeNextPortfolioKit advanced the id counter), so a

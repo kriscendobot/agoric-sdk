@@ -87,7 +87,11 @@ const OperationTypes = {
    * operation; the accompanying Permit2 supplies the initial deposit.
    *
    * - allocations: initial target allocation across instruments
-   * - accountHolder: bech32 Agoric address that will receive the grant
+   * - accountHolder: the delegation grantee — the bech32 Agoric address that
+   *   receives the granted portfolio permissions. The field name mirrors the
+   *   standalone {@link Grant} op for cross-op consistency; despite the generic
+   *   name it is specifically the grant recipient, not the portfolio owner
+   *   (the owner is the signing EVM account, carried by the Permit2 envelope).
    * - permissions: encoded portfolio permissions (see PortfolioPermissions)
    */
   OpenPortfolioWithGrant: [
