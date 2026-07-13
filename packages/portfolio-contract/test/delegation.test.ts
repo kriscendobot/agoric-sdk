@@ -514,11 +514,14 @@ test('open+grant with an unregistered accountHolder aborts and pulls no deposit'
   t.is(walletStatus.status, 'error');
   t.regex(walletStatus.error || '', /"nameKey" not found: "agoric1petesAgent"/);
 
-  // No active/funded portfolio surfaced: because grant is awaited before
-  // orchFns2.openPortfolio, the funding flow never started, so no deposit was
-  // pulled and no portfolio path was ever published for the wallet. (The
-  // funding flow is what publishes the wallet's portfolio list, so its absence
-  // is the observable proof no deposit moved.)
+  // The funding flow never started: the wallet's portfolio path is published
+  // only by OpenOutcomeWatcher.onFulfilled (when openPortfolioFromEVM resolves),
+  // so its absence pins the ordering invariant the fix relies on — the grant is
+  // awaited BEFORE orchFns2.openPortfolio, and a rejected grant aborts before
+  // funding begins. (This is an indirect proxy for "no deposit pulled": the
+  // deposit is drawn inside that funding flow, which is never reached here.
+  // Moving the grant await after the funding flow — the regression this guards
+  // against — would publish the path and redden this assertion.)
   await t.throwsAsync(
     peteKit.readPublished(`evmWallets.${walletAddress}.portfolio`),
     { message: /no data at path/ },

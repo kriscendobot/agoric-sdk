@@ -847,11 +847,12 @@ export const contract = async (
         // On atomicity: the portfolio kit is already minted and durably
         // registered above (makeNextPortfolioKit advanced the id counter), so a
         // rejected grant does NOT undo portfolio creation — it orphans a
-        // registered-but-unfunded shell portfolio. What awaiting the grant
-        // before orchFns2.openPortfolio does buy is that a rejected grant
-        // aborts before the funding flow starts: no deposit is pulled and no
-        // funded, delegated portfolio results. Funding and delegation are the
-        // atomic pair; portfolio-kit creation is not.
+        // registered-but-unfunded shell portfolio. Awaiting the grant before
+        // orchFns2.openPortfolio buys exactly one guarantee, in one direction: a
+        // rejected grant aborts before the funding flow starts, so no deposit is
+        // pulled. It is not a two-way atomic bracket — funding is fire-and-forget
+        // (the `void orchFns2.openPortfolio` below), so a funding failure after a
+        // successful grant can still leave a delegated-but-unfunded portfolio.
         await vowTools.asPromise(
           // cast from EIP-712 string to agoric1 Bech32 address, as in the
           // standalone Grant handler; the string is looked up in NamesByAddress.
