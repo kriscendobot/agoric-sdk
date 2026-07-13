@@ -30,34 +30,39 @@ permissions:
 
 jobs:
   build-sdk-ci-image:
-    runs-on: 'depot-ubuntu-22.04'
+    # Fork CI: Depot is unavailable on the fork. When called from integration.yml
+    # the SDK image is already built and handed over as the `sdk-ci-image`
+    # artifact (build_id passthrough); when dispatched standalone, build it here
+    # with plain docker and upload the same artifact for the template to load.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     outputs:
-      build_id: ${{ steps.build_from_input.outputs.build_id || steps.build.outputs.build-id }}
+      build_id: ${{ steps.build_from_input.outputs.build_id || steps.build.outputs.build_id }}
     steps:
       - id: build_from_input
         if: inputs.sdk_build_id != ''
         run: echo "build_id=${{ inputs.sdk_build_id }}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         if: inputs.sdk_build_id == ''
-      - uses: depot/setup-action@v1
-        if: inputs.sdk_build_id == ''
-        with:
-          oidc: true
       - id: build
         name: Build and save shared SDK CI image
         if: inputs.sdk_build_id == ''
-        uses: depot/build-push-action@v1
+        run: |
+          make docker-build-sdk
+          docker save "$REPOSITORY_SDK:unreleased" | gzip > /tmp/sdk-ci-image.tar.gz
+          echo "build_id=sdk-ci-image" >> "$GITHUB_OUTPUT"
+        working-directory: packages/deployment
+        env:
+          DOCKER_BUILD: 'docker buildx build --platform linux/amd64 --load --provenance=false'
+          REPOSITORY_SDK: ghcr.io/agoric/agoric-sdk
+      - uses: actions/upload-artifact@v7
+        if: inputs.sdk_build_id == ''
         with:
-          context: .
-          file: packages/deployment/Dockerfile.sdk
-          platforms: linux/amd64
-          provenance: false
-          # This shared CI image is only a cross-job handoff artifact, so keep
-          # the Depot Registry retention for this project at 1 day.
-          save: true
+          name: sdk-ci-image
+          path: /tmp/sdk-ci-image.tar.gz
+          retention-days: 1
 
   orchestration-api-hermes:
     name: Orchestration API - Hermes

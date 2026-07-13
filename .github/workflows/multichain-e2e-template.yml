@@ -17,24 +17,20 @@ on:
       sdk_build_id:
         required: true
         type: string
-        description: 'Depot build ID for the prebuilt linux/amd64 SDK image to pull and load into kind'
+        description: 'Non-empty signals the prebuilt linux/amd64 SDK image is available as the sdk-ci-image artifact to load into kind'
 
 jobs:
   multichain-e2e:
     name: Multichain E2E (${{ inputs.test_command }})
-    # Keep this on a Depot runner because the job builds via Depot, loads the
-    # resulting image into kind, and then does substantial local Docker/K8s work.
-    runs-on: 'depot-ubuntu-24.04-16'
+    # Fork CI: retargeted off the Depot runner to GitHub-hosted compute. The
+    # prebuilt SDK image arrives as the `sdk-ci-image` artifact (loaded below)
+    # rather than pulled from the Depot Registry; kind/K8s work is unchanged.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    env:
-      DEPOT_PROJECT_ID: '0gtvlr9g8j'
 
     steps:
-      - uses: depot/setup-action@v1
-        with:
-          oidc: true
       - uses: actions/checkout@v5
         with:
           path: ./agoric-sdk
@@ -89,11 +85,15 @@ jobs:
         run: yarn install
         working-directory: ./agoric-sdk/multichain-testing
 
-      - name: Import prebuilt SDK image
-        uses: depot/pull-action@v1
+      - name: Download prebuilt SDK image
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
-          build-id: ${{ inputs.sdk_build_id }}
-          tags: ghcr.io/agoric/agoric-sdk:dev
+          name: sdk-ci-image
+          path: /tmp/sdk-ci-image
+      - name: Import prebuilt SDK image
+        run: |
+          docker load --input /tmp/sdk-ci-image/sdk-ci-image.tar.gz
+          docker tag ghcr.io/agoric/agoric-sdk:unreleased ghcr.io/agoric/agoric-sdk:dev
 
       - name: Setup kind cluster
         uses: helm/kind-action@v1.14.0

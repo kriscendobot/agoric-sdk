@@ -49,30 +49,37 @@ jobs:
         github.event_name != 'pull_request' ||
         github.event.pull_request.head.repo.full_name == github.repository
       )
-    runs-on: 'depot-ubuntu-22.04'
+    # Fork CI (kriscendobot): Depot is unavailable on the fork -- its OIDC maps
+    # to no Depot project -- so build the shared SDK CI image with plain docker
+    # on a GitHub-hosted runner and hand it to the dependent jobs as a saved
+    # image artifact instead of via the Depot Registry.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     outputs:
-      build_id: ${{ steps.build.outputs.build-id }}
+      build_id: ${{ steps.build.outputs.build_id }}
     steps:
       - uses: actions/checkout@v5
 
-      - uses: depot/setup-action@v1
-        with:
-          oidc: true
-
       - id: build
         name: Build and save shared SDK CI image
-        uses: depot/build-push-action@v1
+        run: |
+          make docker-build-sdk
+          docker save "$REPOSITORY_SDK:unreleased" | gzip > /tmp/sdk-ci-image.tar.gz
+          echo "build_id=sdk-ci-image" >> "$GITHUB_OUTPUT"
+        working-directory: packages/deployment
+        env:
+          # `make docker-build-sdk` shells out through DOCKER_BUILD; use buildx so
+          # --load/--provenance work, standing in for `depot build`.
+          DOCKER_BUILD: 'docker buildx build --platform linux/amd64 --load --provenance=false'
+          REPOSITORY_SDK: ghcr.io/agoric/agoric-sdk
+
+      - uses: actions/upload-artifact@v7
         with:
-          context: .
-          file: packages/deployment/Dockerfile.sdk
-          platforms: linux/amd64
-          provenance: false
-          # This shared CI image is only a cross-job handoff artifact, so keep
-          # the Depot Registry retention for this project at 1 day.
-          save: true
+          name: sdk-ci-image
+          path: /tmp/sdk-ci-image.tar.gz
+          retention-days: 1
 
   getting-started-flag:
     needs: pre_check
@@ -179,7 +186,10 @@ jobs:
     needs: pre_check
     if: needs.pre_check.outputs.should_run == 'true'
 
-    runs-on: 'depot-ubuntu-22.04-8'
+    # Fork CI: retargeted off the Depot runner to GitHub-hosted compute. This job
+    # used Depot only as a bigger runner (no depot/* actions), so a plain
+    # ubuntu-latest suffices; the deployment test drives docker directly.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
@@ -250,18 +260,16 @@ jobs:
       - pre_check
       - build-sdk-ci-image
     if: needs.pre_check.outputs.should_run == 'true'
-    # Keep this validation job on a Depot runner because it builds through Depot
-    # and then uses the loaded image locally for follow-on Docker-heavy checks.
-    runs-on: 'depot-ubuntu-22.04-16'
+    # Fork CI: retargeted off Depot to a GitHub-hosted runner. ubuntu-latest
+    # provides docker, so the a3p-integration proposals build and run here; the
+    # shared SDK image arrives as an uploaded artifact instead of a Depot pull.
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - uses: depot/setup-action@v1
-        with:
-          oidc: true
       - name: update job environment
         run: |
           if [ ":$HOME" = : ]; then
@@ -288,19 +296,23 @@ jobs:
         with:
           path: ./agoric-sdk
 
-      - name: Pull shared SDK CI image
+      - name: Download shared SDK CI image
         if: needs.build-sdk-ci-image.outputs.build_id != ''
-        uses: depot/pull-action@v1
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
-          build-id: ${{ needs.build-sdk-ci-image.outputs.build_id }}
-          tags: ghcr.io/agoric/agoric-sdk:unreleased
+          name: sdk-ci-image
+          path: /tmp/sdk-ci-image
+      - name: Load shared SDK CI image
+        if: needs.build-sdk-ci-image.outputs.build_id != ''
+        run: docker load --input /tmp/sdk-ci-image/sdk-ci-image.tar.gz
 
       - name: docker build (sdk)
         if: needs.build-sdk-ci-image.outputs.build_id == ''
         # Produces ghcr.io/agoric/agoric-sdk:unreleased used in the following upgrade test.
         # run: cd packages/deployment && ./scripts/test-docker-build.sh | $TEST_COLLECT
         # XXX skip TAP test output and collection for now; it hides the output from the logs
-        run: DOCKER_BUILD='depot build --platform linux/amd64 --load --provenance=false' make docker-build-sdk
+        # Fork CI: buildx stands in for `depot build` (no Depot project on the fork).
+        run: DOCKER_BUILD='docker buildx build --platform linux/amd64 --load --provenance=false' make docker-build-sdk
         working-directory: agoric-sdk/packages/deployment
 
       - id: restore-golang
@@ -463,14 +475,11 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v5
-      # Use Depot so this validation build shares the same remote builder cache
-      # and Dockerfile build path as the publishing workflow, even though this
-      # check is single-platform and does not exercise the multi-arch push path.
-      - uses: depot/setup-action@v1
-        with:
-          oidc: true
+      # Fork CI: Depot is unavailable on the fork, so build with buildx. This is a
+      # single-platform validation build and does not exercise the multi-arch
+      # push path, so plain buildx is an exact functional stand-in.
       - name: Build ymax-planner Docker image
-        run: depot build --file services/ymax-planner/Dockerfile --tag ymax-planner:ci .
+        run: docker buildx build --file services/ymax-planner/Dockerfile --tag ymax-planner:ci .
 
   finalize-integration-result:
     needs:
