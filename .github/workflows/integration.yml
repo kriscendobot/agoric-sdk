@@ -246,22 +246,15 @@ jobs:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   test-docker-build:
-    needs:
-      - pre_check
-      - build-sdk-ci-image
+    needs: pre_check
     if: needs.pre_check.outputs.should_run == 'true'
-    # Keep this validation job on a Depot runner because it builds through Depot
-    # and then uses the loaded image locally for follow-on Docker-heavy checks.
-    runs-on: 'depot-ubuntu-22.04-16'
+    # Build and exercise the SDK image on a stock GitHub-hosted runner.  This
+    # keeps the a3p baseline independent of Depot's remote builder and image
+    # handoff.
+    runs-on: ubuntu-latest
     timeout-minutes: 90
-    permissions:
-      contents: read
-      id-token: write
 
     steps:
-      - uses: depot/setup-action@v1
-        with:
-          oidc: true
       - name: update job environment
         run: |
           if [ ":$HOME" = : ]; then
@@ -288,19 +281,11 @@ jobs:
         with:
           path: ./agoric-sdk
 
-      - name: Pull shared SDK CI image
-        if: needs.build-sdk-ci-image.outputs.build_id != ''
-        uses: depot/pull-action@v1
-        with:
-          build-id: ${{ needs.build-sdk-ci-image.outputs.build_id }}
-          tags: ghcr.io/agoric/agoric-sdk:unreleased
-
       - name: docker build (sdk)
-        if: needs.build-sdk-ci-image.outputs.build_id == ''
         # Produces ghcr.io/agoric/agoric-sdk:unreleased used in the following upgrade test.
         # run: cd packages/deployment && ./scripts/test-docker-build.sh | $TEST_COLLECT
         # XXX skip TAP test output and collection for now; it hides the output from the logs
-        run: DOCKER_BUILD='depot build --platform linux/amd64 --load --provenance=false' make docker-build-sdk
+        run: make docker-build-sdk
         working-directory: agoric-sdk/packages/deployment
 
       - id: restore-golang
