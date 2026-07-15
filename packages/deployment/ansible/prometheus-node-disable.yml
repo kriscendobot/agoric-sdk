@@ -4,10 +4,10 @@
   gather_facts: no
   strategy: free
   vars:
-    - service: node-exporter
-    - user: root
-    - to_remove:
-        - /etc/systemd/system/node-exporter.service
+    service: node-exporter
+    user: root
+    to_remove:
+      - /etc/systemd/system/node-exporter.service
   roles:
     - stop
     - remove

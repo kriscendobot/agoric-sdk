@@ -5,7 +5,7 @@
   gather_facts: no
   strategy: free
   vars:
-    - service: ag-chain-cosmos
-    - user: '{{ service }}'
+    service: ag-chain-cosmos
+    user: '{{ service }}'
   roles:
     - start

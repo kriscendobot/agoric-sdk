@@ -5,8 +5,8 @@
   gather_facts: yes
   strategy: free
   vars:
-    - service: ag-chain-cosmos
-    - APPDIR: "{{lookup('pipe', 'pwd')}}/../.."
+    service: ag-chain-cosmos
+    APPDIR: "{{lookup('pipe', 'pwd')}}/../.."
   roles:
     - stop
     - copy

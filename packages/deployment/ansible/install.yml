@@ -5,9 +5,9 @@
   gather_facts: no
   strategy: free
   vars:
-    - service: ag-chain-cosmos
-    - user: '{{ service }}'
-    - chdir: '/home/{{ user }}'
-    - NETWORK_NAME: "{{ lookup('file', SETUP_HOME + '/network.txt') }}"
+    service: ag-chain-cosmos
+    user: '{{ service }}'
+    chdir: '/home/{{ user }}'
+    NETWORK_NAME: "{{ lookup('file', SETUP_HOME + '/network.txt') }}"
   roles:
     - install
