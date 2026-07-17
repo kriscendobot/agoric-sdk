@@ -71,6 +71,7 @@ import { preparePosition, type Position } from './pos.exo.js';
 import { makeOfferArgsShapes } from './type-guards-steps.js';
 import type { MovementDesc, OfferArgsFor } from './type-guards-steps.js';
 import {
+  FlowKeyShape,
   makeFlowPath,
   makeFlowStepsPath,
   makePortfolioAgentsPath,
@@ -239,6 +240,13 @@ harden(GMPAccountInfoShape);
  *   `tap` upcall are invoked by the vow/transfer machinery with a settled value
  *   and an optional context; their guards leave that value unconstrained
  *   (`M.any()`) and accept an optional trailing argument.
+ * - The offer handlers (`rebalanceHandler`, `depositHandler`,
+ *   `simpleRebalanceHandler`, `withdrawHandler`) each yield a flow-id key
+ *   (`` `flow${number}` ``) to the offer caller — a value with a stable static
+ *   type, not one read back out of long-lived state — so the result is pinned
+ *   to the precise, forward-compatible `FlowKeyShape` (as `planner`'s guards
+ *   already do) rather than `M.any()`. `rebalanceHandler.handle` is the lone
+ *   `async` one, so it returns a promise of that key (`M.promise()`).
  * - `withdrawHandler.handle` ignores `offerArgs`, so its guard leaves the
  *   trailing argument optional and unconstrained rather than pinning a shape.
  * - `evmHandler.rebalance` is called with `(undefined, permitDetails)` as well
@@ -372,18 +380,26 @@ const makePortfolioKitInterface = (
       setAutoFeatures: M.call(PortfolioAutoFeaturesShape).returns(VowShape),
     }),
     rebalanceHandler: M.interface('rebalanceHandler', {
-      handle: M.call(M.remotable(), offerArgsShapes.rebalance).returns(M.any()),
+      // `rebalanceHandler.handle` is `async` (the others are synchronous), so it
+      // resolves to a flow-id key rather than returning one directly.
+      handle: M.call(M.remotable(), offerArgsShapes.rebalance).returns(
+        M.promise(),
+      ),
     }),
     depositHandler: M.interface('depositHandler', {
-      handle: M.call(M.remotable(), offerArgsShapes.deposit).returns(M.any()),
+      handle: M.call(M.remotable(), offerArgsShapes.deposit).returns(
+        FlowKeyShape,
+      ),
     }),
     simpleRebalanceHandler: M.interface('simpleRebalanceHandler', {
-      handle: M.call(M.remotable(), offerArgsShapes.rebalance).returns(M.any()),
+      handle: M.call(M.remotable(), offerArgsShapes.rebalance).returns(
+        FlowKeyShape,
+      ),
     }),
     withdrawHandler: M.interface('withdrawHandler', {
       // `withdrawHandler.handle` ignores any `offerArgs`, so its guard leaves the
       // trailing argument optional and unconstrained.
-      handle: M.call(M.remotable()).optional(M.any()).returns(M.any()),
+      handle: M.call(M.remotable()).optional(M.any()).returns(FlowKeyShape),
     }),
     invitationMakers: M.interface('invitationMakers', {
       Rebalance: M.callWhen().returns(InvitationShape),
