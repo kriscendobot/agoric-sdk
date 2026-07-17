@@ -240,13 +240,18 @@ harden(GMPAccountInfoShape);
  *   `tap` upcall are invoked by the vow/transfer machinery with a settled value
  *   and an optional context; their guards leave that value unconstrained
  *   (`M.any()`) and accept an optional trailing argument.
- * - The offer handlers (`rebalanceHandler`, `depositHandler`,
- *   `simpleRebalanceHandler`, `withdrawHandler`) each yield a flow-id key
- *   (`` `flow${number}` ``) to the offer caller — a value with a stable static
- *   type, not one read back out of long-lived state — so the result is pinned
- *   to the precise, forward-compatible `FlowKeyShape` (as `planner`'s guards
- *   already do) rather than `M.any()`. `rebalanceHandler.handle` is the lone
- *   `async` one, so it returns a promise of that key (`M.promise()`).
+ * - Every method that yields a flow-id key (`` `flow${number}` ``) to its
+ *   caller returns a value with a stable static type (`FlowKey`), not one read
+ *   back out of long-lived state, so its result is pinned to the precise,
+ *   forward-compatible `FlowKeyShape` — an endo `TypedPattern<`flow${number}`>`
+ *   (`CastedPattern`) that carries the static type it validates — rather than a
+ *   bare `M.string()` / `M.any()`. This covers the four offer handlers
+ *   (`rebalanceHandler`, `depositHandler`, `simpleRebalanceHandler`,
+ *   `withdrawHandler`), the two delegated-planner submitters
+ *   (`delegationHelper.submitTargetAllocation`, `submitRebalance`), and the
+ *   three `evmHandler` actions (`deposit`, `rebalance`, `withdraw`).
+ *   `rebalanceHandler.handle` is the lone `async` one, so it returns a promise
+ *   of that key (`M.promise()`).
  * - `withdrawHandler.handle` ignores `offerArgs`, so its guard leaves the
  *   trailing argument optional and unconstrained rather than pinning a shape.
  * - `evmHandler.rebalance` is called with `(undefined, permitDetails)` as well
@@ -292,7 +297,9 @@ const makePortfolioKitInterface = (
     // through the `PortfolioDelegationClient` remotable and an agent id before
     // acting, so the client is guarded as a remotable and the id as a number.
     // The delegated-params records are re-validated inside each handler, so their
-    // guards stay loose (`M.record()`).
+    // guards stay loose (`M.record()`), while the two submitters return a flow-id
+    // key with a stable static type, pinned to `FlowKeyShape` like the offer
+    // handlers.
     delegationHelper: M.interface('delegationHelper', {
       assertActive: M.call(M.remotable('PortfolioDelegationClient'), M.number())
         .optional(M.record())
@@ -315,12 +322,12 @@ const makePortfolioKitInterface = (
         M.remotable('PortfolioDelegationClient'),
         M.number(),
         M.record(),
-      ).returns(M.string()),
+      ).returns(FlowKeyShape),
       submitRebalance: M.call(
         M.remotable('PortfolioDelegationClient'),
         M.number(),
         M.record(),
-      ).returns(M.string()),
+      ).returns(FlowKeyShape),
     }),
     reporter: M.interface('reporter', {
       publishStatus: M.call().returns(),
@@ -370,9 +377,9 @@ const makePortfolioKitInterface = (
       )
         .optional(M.boolean())
         .returns(),
-      deposit: M.call(M.any()).returns(M.string()),
-      rebalance: M.call().optional(M.any(), M.any()).returns(M.string()),
-      withdraw: M.call(M.record()).returns(M.string()),
+      deposit: M.call(M.any()).returns(FlowKeyShape),
+      rebalance: M.call().optional(M.any(), M.any()).returns(FlowKeyShape),
+      withdraw: M.call(M.record()).returns(FlowKeyShape),
       // `grant`/`setAutoFeatures` wrap their body in `vowTools.asVow`, so they
       // return a Vow. This guard is the input check, replacing the former
       // internal `mustMatch`.
