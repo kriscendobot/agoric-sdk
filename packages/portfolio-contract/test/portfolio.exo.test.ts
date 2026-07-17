@@ -1064,6 +1064,61 @@ test('evmHandler grant passes only the delegation client to delivery', async t =
   t.deepEqual(permissions, { allocation: true });
 });
 
+test('evmHandler interface guard rejects malformed delegation inputs', t => {
+  const ownerAddress = '0x2323232323232323232323232323232323232323' as const;
+  const { makePortfolioKit } = makeTestSetup();
+  const { evmHandler } = makePortfolioKit({
+    portfolioId: 15,
+    sourceAccountId: `eip155:42161:${ownerAddress}`,
+  });
+
+  // These checks used to be local mustMatch calls in the method bodies. Keep
+  // them at the exo boundary now that the interface guard owns validation.
+  t.throws(() =>
+    evmHandler.grant('agoric1delegate', { allocation: 'true' } as any),
+  );
+  t.throws(() => evmHandler.setAutoFeatures({ rebalance: 'true' } as any));
+});
+
+test('offer-handler interface guards reject malformed offerArgs', t => {
+  const { makePortfolioKit } = makeTestSetup();
+  const kit = makePortfolioKit({ portfolioId: 77 }) as any;
+  const seat = Far('seat', {
+    getProposal: () => harden({ give: {}, want: {} }),
+  });
+
+  // `rebalanceHandler`/`depositHandler`/`simpleRebalanceHandler` used to call
+  // `mustMatch(offerArgs, offerArgsShapes.*)` in their bodies; that validation
+  // now lives in the interface guard (`offerArgsShapes.rebalance`/`.deposit`).
+  // The offer-args shapes are closed records, so both a wrong-typed field and an
+  // unexpected extra property must be rejected at the exo boundary.
+  for (const handler of [
+    'rebalanceHandler',
+    'simpleRebalanceHandler',
+  ] as const) {
+    t.throws(
+      () => kit[handler].handle(seat, harden({ flow: 'not-an-array' })),
+      undefined,
+      `${handler} rejects wrong-typed flow`,
+    );
+    t.throws(
+      () => kit[handler].handle(seat, harden({ unexpected: 1 })),
+      undefined,
+      `${handler} rejects an unexpected property`,
+    );
+  }
+  t.throws(
+    () => kit.depositHandler.handle(seat, harden({ flow: 'not-an-array' })),
+    undefined,
+    'depositHandler rejects wrong-typed flow',
+  );
+  t.throws(
+    () => kit.depositHandler.handle(seat, harden({ unexpected: 1 })),
+    undefined,
+    'depositHandler rejects an unexpected property',
+  );
+});
+
 test('evmHandler grant allocates sequential agent ids', async t => {
   const ownerAddress = '0x3434343434343434343434343434343434343434' as const;
   const { makePortfolioKit, getCallLog } = makeTestSetup();

@@ -2,12 +2,7 @@
  * NOTE: This is host side code; can't use await.
  */
 import { AmountMath, type Brand } from '@agoric/ertp';
-import {
-  makeTracer,
-  mustMatch,
-  type ERemote,
-  type TypedPattern,
-} from '@agoric/internal';
+import { makeTracer, type ERemote, type TypedPattern } from '@agoric/internal';
 import type { StorageNode } from '@agoric/internal/src/lib-chainStorage.js';
 import type { EMarshaller } from '@agoric/internal/src/marshal/wrap-marshaller.js';
 import type { IBCConnectionInfo } from '@agoric/network/ibc';
@@ -56,8 +51,9 @@ import type { PermitDetails } from '@agoric/portfolio-api/src/evm-wallet/message
 import type { MapStore } from '@agoric/store';
 import type { VTransferIBCEvent } from '@agoric/vats';
 import type { TargetRegistration } from '@agoric/vats/src/bridge-target.js';
-import { type Vow, type VowKit, type VowTools } from '@agoric/vow';
+import { VowShape, type Vow, type VowKit, type VowTools } from '@agoric/vow';
 import type { ZCF, ZCFSeat } from '@agoric/zoe';
+import { InvitationShape } from '@agoric/zoe/src/typeGuards.js';
 import type { Zone } from '@agoric/zone';
 import { bare, Fail, X } from '@endo/errors';
 import { E } from '@endo/far';
@@ -72,14 +68,19 @@ import { generateNobleForwardingAddress } from './noble-fwd-calc.js';
 import type { EVMContractAddresses } from './portfolio.contract.ts';
 import { type LocalAccount, type NobleAccount } from './portfolio.flows.js';
 import { preparePosition, type Position } from './pos.exo.js';
-import type { makeOfferArgsShapes, MovementDesc } from './type-guards-steps.js';
+import { makeOfferArgsShapes } from './type-guards-steps.js';
+import type { MovementDesc, OfferArgsFor } from './type-guards-steps.js';
 import {
+  FlowDetailShape,
+  FlowKeyShape,
+  FlowStepsShape,
   makeFlowPath,
   makeFlowStepsPath,
   makePortfolioAgentsPath,
   makePortfolioPath,
   PoolKeyShapeExt,
   PortfolioAgentStatusShape,
+  TargetAllocationShapeExt,
   type EVMContractAddressesMap,
   type FlowDetail,
   type makeProposalShapes,
@@ -202,6 +203,202 @@ export const PortfolioStateShape = {
   etc: M.any(),
 };
 harden(PortfolioStateShape);
+
+/**
+ * Shape for {@link GMPAccountInfo}, matching the static type. Read back out of
+ * the durable `accounts` store, so it keeps a trailing `M.record()` (and is not
+ * a closed `TypedPattern`) to tolerate fields added by a future incarnation.
+ */
+const GMPAccountInfoShape = M.splitRecord(
+  {
+    namespace: 'eip155',
+    chainName: M.string(),
+    chainId: M.string(),
+    remoteAddress: M.string(),
+  },
+  {
+    err: M.string(),
+    routerAddress: M.undefined(),
+    routerFactory: M.string(),
+  },
+  M.record(),
+);
+harden(GMPAccountInfoShape);
+
+/**
+ * Interface guards for the {@link PortfolioKit} facets.
+ *
+ * Guards are runtime enforcement, so they normally match their method's static
+ * type. Results produced by the current call, such as flow keys, use precise
+ * shapes. A value read from upgrade-in-place state uses a forward-compatible
+ * shape when available, since a future incarnation can widen stored data.
+ * Other deliberate exceptions are documented beside their methods.
+ *
+ * A factory (rather than a module constant) because the `offerArgsShapes` used
+ * by the offer-handler guards are built per-contract from the USDC brand.
+ */
+const makePortfolioKitInterface = (
+  offerArgsShapes: ReturnType<typeof makeOfferArgsShapes>,
+) =>
+  harden({
+    tap: M.interface('tap', {
+      receiveUpcall: M.call(M.record()).returns(M.promise()),
+    }),
+    // A settlement watcher invoked by the vow machinery with an arbitrary
+    // settled value (and an optional context), so its argument and result are
+    // legitimately unconstrained.
+    parseInboundTransferWatcher: M.interface('parseInboundTransferWatcher', {
+      onFulfilled: M.call(M.any()).optional(M.any()).returns(M.any()),
+      onRejected: M.call(M.any()).optional(M.any()).returns(M.any()),
+    }),
+    reader: M.interface('reader', {
+      getLocalAccount: M.call().returns(M.remotable('LocalAccount')),
+      // Production returns a Vow (via `asVow`), but under the async-flow guest
+      // membrane (see portfolio.flows.ts) the same call yields a Promise, so the
+      // guard must accept either. (It cannot be a `callWhen` .returns(<path>):
+      // callers plumb the Vow through the async-flow membrane / `asPromise` and
+      // must receive the Vow itself, not a pre-settled promise.)
+      getStoragePath: M.call().returns(M.or(VowShape, M.promise())),
+      getPortfolioId: M.call().returns(M.number()),
+      getGMPInfo: M.call(M.string()).returns(GMPAccountInfoShape),
+      useRouterForChain: M.call(M.string()).returns(M.boolean()),
+      // `targetAllocation` state field is optional; `*Ext` tolerates pool keys
+      // added by a future incarnation (mirrors the published-status shape).
+      getTargetAllocation: M.call().returns(M.opt(TargetAllocationShapeExt)),
+      accountIdByChain: M.call().returns(M.record()),
+      accountStateByChain: M.call().returns(M.record()),
+      getSourceAccountId: M.call().returns(M.opt(M.string())),
+      checkVersion: M.call(M.number(), M.number()).returns(),
+    }),
+    // The delegated-planner control facet: each method authenticates the caller
+    // through the `PortfolioDelegationClient` remotable and an agent id before
+    // acting, so the client is guarded as a remotable and the id as a number.
+    // The delegated-params records are re-validated inside each handler, so their
+    // guards stay loose (`M.record()`), while the two submitters return a flow-id
+    // key with a stable static type, pinned to `FlowKeyShape` like the offer
+    // handlers.
+    delegationHelper: M.interface('delegationHelper', {
+      assertActive: M.call(M.remotable('PortfolioDelegationClient'), M.number())
+        .optional(PortfolioPermissionsShape)
+        .returns(),
+      getPortfolioId: M.call(
+        M.remotable('PortfolioDelegationClient'),
+        M.number(),
+      ).returns(M.number()),
+      // Both read optional fields back out of durable state, so they use the
+      // forward-compatible `*Ext` shapes wrapped in `M.opt`.
+      getAutoFeatures: M.call(
+        M.remotable('PortfolioDelegationClient'),
+        M.number(),
+      ).returns(M.opt(PortfolioAutoFeaturesExtShape)),
+      getTargetAllocation: M.call(
+        M.remotable('PortfolioDelegationClient'),
+        M.number(),
+      ).returns(M.opt(TargetAllocationShapeExt)),
+      submitTargetAllocation: M.call(
+        M.remotable('PortfolioDelegationClient'),
+        M.number(),
+        M.record(),
+      ).returns(FlowKeyShape),
+      submitRebalance: M.call(
+        M.remotable('PortfolioDelegationClient'),
+        M.number(),
+        M.record(),
+      ).returns(FlowKeyShape),
+    }),
+    reporter: M.interface('reporter', {
+      publishStatus: M.call().returns(),
+      publishAgents: M.call().returns(),
+      finishFlow: M.call(M.number()).returns(),
+      publishFlowSteps: M.call(M.number(), FlowStepsShape)
+        .optional(M.any())
+        .returns(),
+      // `status` is a *superset* of the static `FlowStatus`: the callers merge
+      // the flow's `...flowDetail` (and, on failure, the `...reasons` chain)
+      // into it before publishing (see portfolio.flows.ts), so it carries
+      // detail fields (`fromChain`, `agent`, `agentMemo`, …) beyond what the
+      // closed `FlowStatusShape` fail-variant admits. Kept `M.any()`.
+      publishFlowStatus: M.call(M.number(), M.any()).returns(),
+    }),
+    planner: M.interface('planner', {
+      submitVersion: M.call(M.number(), M.number()).returns(),
+      resolveFlowPlan: M.call(M.number(), M.any()).returns(),
+      rejectFlowPlan: M.call(M.number(), M.string()).returns(),
+      // Delegates to `reader.getTargetAllocation`; see that note.
+      getTargetAllocation: M.call().returns(M.opt(TargetAllocationShapeExt)),
+    }),
+    manager: M.interface('manager', {
+      reserveAccount: M.call(M.string()).returns(M.any()),
+      reserveAccountState: M.call(M.string()).returns(M.any()),
+      initAccountInfo: M.call(M.any()).returns(),
+      resolveAccount: M.call(M.any()).returns(),
+      releaseAccount: M.call(M.string(), M.any()).returns(),
+      startFlow: M.call(FlowDetailShape).optional(M.any()).returns(M.any()),
+      providePosition: M.call(M.string(), M.string(), M.string()).returns(
+        M.remotable('Position'),
+      ),
+      setTargetAllocation: M.call(TargetAllocationShapeExt).returns(),
+      incrPolicyVersion: M.call().returns(),
+      grantDelegation: M.call(M.string(), PortfolioPermissionsShape).returns(
+        M.promise(),
+      ),
+      revokeDelegation: M.call(M.number()).returns(),
+      setAutoFeatures: M.call(PortfolioAutoFeaturesShape).returns(M.promise()),
+    }),
+    // A settlement watcher (see `parseInboundTransferWatcher`): the settled
+    // value and result are legitimately unconstrained.
+    accountWatcher: M.interface('accountWatcher', {
+      onFulfilled: M.call(M.any()).optional(M.any()).returns(M.any()),
+      onRejected: M.call(M.any()).optional(M.any()).returns(M.any()),
+    }),
+    // Vestigial devnet-compat facet with no methods.
+    allocation: M.interface('allocation', {}),
+    evmHandler: M.interface('evmHandler', {
+      getReaderFacet: M.call().returns(M.remotable()),
+      validateRepresentativeInfo: M.call(
+        M.or(M.number(), M.bigint()),
+        M.string(),
+      )
+        .optional(M.boolean())
+        .returns(),
+      deposit: M.call(M.any()).returns(FlowKeyShape),
+      rebalance: M.call().optional(M.any(), M.any()).returns(FlowKeyShape),
+      withdraw: M.call(M.record()).returns(FlowKeyShape),
+      // `grant`/`setAutoFeatures` wrap their body in `vowTools.asVow`, so they
+      // return a Vow. This guard is the input check, replacing the former
+      // internal `mustMatch`.
+      grant: M.call(M.string(), PortfolioPermissionsShape).returns(VowShape),
+      setAutoFeatures: M.call(PortfolioAutoFeaturesShape).returns(VowShape),
+    }),
+    rebalanceHandler: M.interface('rebalanceHandler', {
+      // `rebalanceHandler.handle` is `async` (the others are synchronous), so it
+      // resolves to a flow-id key rather than returning one directly.
+      handle: M.call(M.remotable(), offerArgsShapes.rebalance).returns(
+        M.promise(),
+      ),
+    }),
+    depositHandler: M.interface('depositHandler', {
+      handle: M.call(M.remotable(), offerArgsShapes.deposit).returns(
+        FlowKeyShape,
+      ),
+    }),
+    simpleRebalanceHandler: M.interface('simpleRebalanceHandler', {
+      handle: M.call(M.remotable(), offerArgsShapes.rebalance).returns(
+        FlowKeyShape,
+      ),
+    }),
+    withdrawHandler: M.interface('withdrawHandler', {
+      // `withdrawHandler.handle` ignores any `offerArgs`, so its guard leaves the
+      // trailing argument optional and unconstrained.
+      handle: M.call(M.remotable()).optional(M.any()).returns(FlowKeyShape),
+    }),
+    invitationMakers: M.interface('invitationMakers', {
+      Rebalance: M.callWhen().returns(InvitationShape),
+      Withdraw: M.callWhen().returns(InvitationShape),
+      Deposit: M.callWhen().returns(InvitationShape),
+      SimpleRebalance: M.callWhen().returns(InvitationShape),
+    }),
+  });
 
 export const makeValidateOpenMessageRepresentativeInfo =
   (
@@ -478,16 +675,12 @@ export const preparePortfolioKit = (
 
   return zone.exoClassKit(
     'Portfolio',
-    undefined /* TODO {
-      tap: M.interface('tap', {
-        receiveUpcall: M.call(M.record()).returns(M.promise()),
-      }),
-      reader: ReaderI,
-      manager: ManagerI,
-      rebalanceHandler: OfferHandlerI,
-      invitationMakers: M.interface('invitationMakers', {
-        Rebalance: M.callWhen().returns(InvitationShape),
-      })}*/,
+    // The offer-handler guards need the offer-args shapes; fall back to
+    // rebuilding them from the USDC brand when a (partial-powers) caller — e.g.
+    // a unit test that never exercises the offer handlers — omits them.
+    makePortfolioKitInterface(
+      offerArgsShapes ?? makeOfferArgsShapes(usdcBrand),
+    ),
     ({
       portfolioId,
       sourceAccountId,
@@ -1521,7 +1714,6 @@ export const preparePortfolioKit = (
          */
         grant(grantee: Bech32Address, permissions: PortfolioPermissionsExt) {
           return vowTools.asVow(async () => {
-            mustMatch(permissions, PortfolioPermissionsShape);
             const { sourceAccountId } = this.state;
             if (!sourceAccountId) {
               throw Fail`grant requires sourceAccountId to be set (portfolio must be opened from EVM)`;
@@ -1537,7 +1729,6 @@ export const preparePortfolioKit = (
          */
         setAutoFeatures(features: PortfolioAutoFeaturesExt) {
           return vowTools.asVow(() => {
-            mustMatch(features, PortfolioAutoFeaturesShape);
             const { sourceAccountId } = this.state;
             if (!sourceAccountId) {
               throw Fail`setAutoFeatures requires sourceAccountId to be set (portfolio must be opened from EVM)`;
@@ -1548,8 +1739,7 @@ export const preparePortfolioKit = (
         },
       },
       rebalanceHandler: {
-        async handle(seat: ZCFSeat, offerArgs: unknown) {
-          mustMatch(offerArgs, offerArgsShapes.rebalance);
+        async handle(seat: ZCFSeat, offerArgs: OfferArgsFor['rebalance']) {
           const startedFlow = this.facets.manager.startFlow(
             { type: 'rebalance' },
             offerArgs.flow,
@@ -1562,8 +1752,7 @@ export const preparePortfolioKit = (
         },
       },
       depositHandler: {
-        handle(seat: ZCFSeat, offerArgs: unknown) {
-          mustMatch(offerArgs, offerArgsShapes.deposit);
+        handle(seat: ZCFSeat, offerArgs: OfferArgsFor['deposit']) {
           const proposal =
             seat.getProposal() as unknown as ProposalType['deposit'];
           const flowDetail = {
@@ -1586,9 +1775,8 @@ export const preparePortfolioKit = (
         },
       },
       simpleRebalanceHandler: {
-        handle(seat: ZCFSeat, offerArgs: unknown): FlowKey {
+        handle(seat: ZCFSeat, offerArgs: OfferArgsFor['rebalance']): FlowKey {
           // XXX offerArgs.flow shouldn't be allowed
-          mustMatch(offerArgs, offerArgsShapes.rebalance);
           const { manager } = this.facets;
           if (offerArgs.targetAllocation) {
             manager.setTargetAllocation(offerArgs.targetAllocation);

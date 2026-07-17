@@ -5,6 +5,7 @@
  * @see {@link Position}
  */
 import { AmountMath, type Amount } from '@agoric/ertp';
+import type { TypedPattern } from '@agoric/internal';
 import type { AccountId } from '@agoric/orchestration';
 import { AnyNatAmountShape } from '@agoric/orchestration';
 import type { YieldProtocol } from '@agoric/portfolio-api/src/constants.js';
@@ -87,6 +88,27 @@ export const PositionStateShape = {
 };
 harden(PositionStateShape);
 
+/**
+ * Interface guard for the {@link Position} exo.
+ *
+ * `getPoolKey`/`getYieldProtocol` are guarded with the extensible `M.string()`
+ * (rather than an enumeration of the currently-known pool keys / protocols) so
+ * that positions created by future upgrades — which may use pool keys or yield
+ * protocols not yet known — keep answering these accessors. Amounts use the
+ * brand-agnostic {@link AnyNatAmountShape} for the same reason.
+ */
+export const PositionI = M.interface('Position', {
+  // `M.string()` keeps the runtime guard extensible (see above); the
+  // `TypedPattern` casts pin the *static* return types to the branded
+  // `PoolKey`/`YieldProtocol` the {@link Position} interface promises, so a
+  // guarded position stays assignable to `Position`.
+  getPoolKey: M.call().returns(M.string() as TypedPattern<PoolKey>),
+  getYieldProtocol: M.call().returns(M.string() as TypedPattern<YieldProtocol>),
+  recordTransferIn: M.call(AnyNatAmountShape).returns(AnyNatAmountShape),
+  recordTransferOut: M.call(AnyNatAmountShape).returns(AnyNatAmountShape),
+  publishStatus: M.call().returns(),
+});
+
 export const preparePosition = (
   zone: Zone,
   emptyTransferState: TransferStatus,
@@ -94,7 +116,7 @@ export const preparePosition = (
 ) =>
   zone.exoClass(
     'Position',
-    undefined, // interface TODO
+    PositionI,
     (
       portfolioId: number,
       poolKey: PoolKey,
