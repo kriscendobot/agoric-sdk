@@ -71,7 +71,9 @@ import { preparePosition, type Position } from './pos.exo.js';
 import { makeOfferArgsShapes } from './type-guards-steps.js';
 import type { MovementDesc, OfferArgsFor } from './type-guards-steps.js';
 import {
+  FlowDetailShape,
   FlowKeyShape,
+  FlowStepsShape,
   makeFlowPath,
   makeFlowStepsPath,
   makePortfolioAgentsPath,
@@ -226,36 +228,63 @@ harden(GMPAccountInfoShape);
 /**
  * Interface guards for the {@link PortfolioKit} facets.
  *
- * Design notes, given the portfolio's long-lived, upgrade-in-place state:
+ * Guards are the *runtime* enforcement (static types are advisory devex), so
+ * the default is that each guard **matches its method's static type** — see
+ * CONTRIBUTING § `TypedPattern`s. Where a stable shape already exists it is
+ * named precisely: results carrying a `` `flow${number}` `` key use
+ * `FlowKeyShape`; `Position` remotables use `M.remotable('Position')`;
+ * `reporter.publishFlowSteps`' steps argument uses `FlowStepsShape`; the
+ * `FlowDetail` argument uses `FlowDetailShape`; a `TargetAllocation` uses the
+ * forward-compatible `TargetAllocationShapeExt`.
  *
- * - Compatibility governs *results* and *evolving* payloads: values read back
- *   out of long-lived state (account info records, flow details, published
- *   status payloads, positions, vows) stay loose (`M.any()` / `M.record()` /
- *   `VowShape`) so that widening those shapes in a future incarnation does not
- *   retroactively reject data written by an earlier version. Where a stable
- *   shape already exists for such a read-back value, the guard uses the
- *   forward-compatible `*Ext` variant (e.g. `TargetAllocationShapeExt`,
- *   `PortfolioAutoFeaturesExtShape`) rather than the closed precise shape.
- * - Watcher facets (`accountWatcher`, `parseInboundTransferWatcher`) and the
- *   `tap` upcall are invoked by the vow/transfer machinery with a settled value
- *   and an optional context; their guards leave that value unconstrained
- *   (`M.any()`) and accept an optional trailing argument.
- * - Every method that yields a flow-id key (`` `flow${number}` ``) to its
- *   caller returns a value with a stable static type (`FlowKey`), not one read
- *   back out of long-lived state, so its result is pinned to the precise,
- *   forward-compatible `FlowKeyShape` — an endo `TypedPattern<`flow${number}`>`
- *   (`CastedPattern`) that carries the static type it validates — rather than a
- *   bare `M.string()` / `M.any()`. This covers the four offer handlers
- *   (`rebalanceHandler`, `depositHandler`, `simpleRebalanceHandler`,
- *   `withdrawHandler`), the two delegated-planner submitters
- *   (`delegationHelper.submitTargetAllocation`, `submitRebalance`), and the
- *   three `evmHandler` actions (`deposit`, `rebalance`, `withdraw`).
- *   `rebalanceHandler.handle` is the lone `async` one, so it returns a promise
- *   of that key (`M.promise()`).
+ * The remaining loose guards (`M.any()` / `M.record()` / `VowShape`) are
+ * *deliberate, enumerated exceptions*, each for one of these reasons:
+ *
+ * - **Read back out of long-lived, upgrade-in-place state.** A closed shape
+ *   would retroactively reject data written by an earlier incarnation once a
+ *   future one widens it, so these stay loose — but only as loose as needed:
+ *   where a stable shape exists the guard uses the forward-compatible `*Ext`
+ *   variant (`TargetAllocationShapeExt`, `PortfolioAutoFeaturesExtShape`,
+ *   `GMPAccountInfoShape`) rather than bare `M.any()`. The `AccountInfo` union
+ *   written via `manager.initAccountInfo` / `resolveAccount` (whose Agoric and
+ *   Noble variants embed remotables) has no single closed shape, so those args
+ *   stay `M.any()`; `reader.accountIdByChain` / `accountStateByChain` return
+ *   records derived from that durable state.
+ * - **Watcher / upcall settled values.** The vow/transfer machinery invokes
+ *   `accountWatcher`, `parseInboundTransferWatcher`, and the `tap` upcall with
+ *   an arbitrary settled value and an optional context; the settled value is
+ *   legitimately unconstrained (`M.any()` plus an optional trailing argument).
+ * - **Async-flow guest membrane.** `reader.getStoragePath` returns a `Vow` in
+ *   production but a `Promise` when reached through the async-flow membrane
+ *   (see `portfolio.flows.ts`), so its guard accepts either
+ *   (`M.or(VowShape, M.promise())`). `manager.reserveAccount` /
+ *   `reserveAccountState` / `startFlow` likewise hand `Vow`s back across that
+ *   boundary, so their results stay `M.any()`.
+ * - **Re-validated inside the handler.** The EVM permit / EIP-712 payloads
+ *   (`evmHandler.deposit` / `rebalance` / `withdraw` args) are evolving records
+ *   re-checked in-body, so their *arguments* stay loose while their flow-id
+ *   *results* are pinned to `FlowKeyShape`.
+ * - **Merged, evolving published payload.** `reporter.publishFlowStatus`'
+ *   `status` argument is a *superset* of the static `FlowStatus`: the callers
+ *   fold the flow's `...flowDetail` (and, on failure, the `...reasons` chain)
+ *   into it before publishing, so it carries detail fields beyond what a closed
+ *   `FlowStatus` shape admits; kept `M.any()`.
+ * - **Opaque by contract.** `manager.releaseAccount`'s failure `reason` is
+ *   `unknown`; `planner.resolveFlowPlan`'s plan is fed straight into a vow
+ *   resolver and has no single exported union shape.
+ *
+ * Call-convention accommodations, orthogonal to the above:
+ * - `rebalanceHandler.handle` is `async` (the other offer handlers are
+ *   synchronous), so it returns a promise of the flow-id key (`M.promise()`).
  * - `withdrawHandler.handle` ignores `offerArgs`, so its guard leaves the
- *   trailing argument optional and unconstrained rather than pinning a shape.
+ *   trailing argument optional and unconstrained.
  * - `evmHandler.rebalance` is called with `(undefined, permitDetails)` as well
  *   as `(allocations, permitDetails)`, so both arguments are optional.
+ * - `manager.grantDelegation` / `setAutoFeatures` and `evmHandler.grant` /
+ *   `setAutoFeatures` guard against the *closed* `PortfolioPermissionsShape` /
+ *   `PortfolioAutoFeaturesShape` (rather than the extensible `*Ext` static
+ *   type): here the guard is the input check that replaced an internal
+ *   `mustMatch`, so it is deliberately *stricter* than the static type.
  *
  * A factory (rather than a module constant) because the `offerArgsShapes` used
  * by the offer-handler guards are built per-contract from the USDC brand.
@@ -302,7 +331,7 @@ const makePortfolioKitInterface = (
     // handlers.
     delegationHelper: M.interface('delegationHelper', {
       assertActive: M.call(M.remotable('PortfolioDelegationClient'), M.number())
-        .optional(M.record())
+        .optional(PortfolioPermissionsShape)
         .returns(),
       getPortfolioId: M.call(
         M.remotable('PortfolioDelegationClient'),
@@ -333,7 +362,14 @@ const makePortfolioKitInterface = (
       publishStatus: M.call().returns(),
       publishAgents: M.call().returns(),
       finishFlow: M.call(M.number()).returns(),
-      publishFlowSteps: M.call(M.number(), M.any()).optional(M.any()).returns(),
+      publishFlowSteps: M.call(M.number(), FlowStepsShape)
+        .optional(M.any())
+        .returns(),
+      // `status` is a *superset* of the static `FlowStatus`: the callers merge
+      // the flow's `...flowDetail` (and, on failure, the `...reasons` chain)
+      // into it before publishing (see portfolio.flows.ts), so it carries
+      // detail fields (`fromChain`, `agent`, `agentMemo`, …) beyond what the
+      // closed `FlowStatusShape` fail-variant admits. Kept `M.any()`.
       publishFlowStatus: M.call(M.number(), M.any()).returns(),
     }),
     planner: M.interface('planner', {
@@ -349,11 +385,11 @@ const makePortfolioKitInterface = (
       initAccountInfo: M.call(M.any()).returns(),
       resolveAccount: M.call(M.any()).returns(),
       releaseAccount: M.call(M.string(), M.any()).returns(),
-      startFlow: M.call(M.record()).optional(M.any()).returns(M.any()),
+      startFlow: M.call(FlowDetailShape).optional(M.any()).returns(M.any()),
       providePosition: M.call(M.string(), M.string(), M.string()).returns(
-        M.any(),
+        M.remotable('Position'),
       ),
-      setTargetAllocation: M.call(M.record()).returns(),
+      setTargetAllocation: M.call(TargetAllocationShapeExt).returns(),
       incrPolicyVersion: M.call().returns(),
       grantDelegation: M.call(M.string(), PortfolioPermissionsShape).returns(
         M.promise(),
@@ -370,7 +406,7 @@ const makePortfolioKitInterface = (
     // Vestigial devnet-compat facet with no methods.
     allocation: M.interface('allocation', {}),
     evmHandler: M.interface('evmHandler', {
-      getReaderFacet: M.call().returns(M.any()),
+      getReaderFacet: M.call().returns(M.remotable()),
       validateRepresentativeInfo: M.call(
         M.or(M.number(), M.bigint()),
         M.string(),
