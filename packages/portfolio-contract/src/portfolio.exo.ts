@@ -342,11 +342,6 @@ const makePortfolioKitInterface = (
       ),
       setTargetAllocation: M.call(M.record()).returns(),
       incrPolicyVersion: M.call().returns(),
-      // `grantDelegation`/`setAutoFeatures` are reached only through the
-      // `evmHandler` facet (and, for `grantDelegation`, `manager.setAutoFeatures`
-      // itself), where the grantee is a stable scalar and the permissions /
-      // features are already the precise shapes; pin them here too. Both methods
-      // are async, so they resolve to a promise.
       grantDelegation: M.call(M.string(), PortfolioPermissionsShape).returns(
         M.promise(),
       ),
