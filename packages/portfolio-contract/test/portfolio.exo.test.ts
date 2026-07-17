@@ -1064,6 +1064,22 @@ test('evmHandler grant passes only the delegation client to delivery', async t =
   t.deepEqual(permissions, { allocation: true });
 });
 
+test('evmHandler interface guard rejects malformed delegation inputs', t => {
+  const ownerAddress = '0x2323232323232323232323232323232323232323' as const;
+  const { makePortfolioKit } = makeTestSetup();
+  const { evmHandler } = makePortfolioKit({
+    portfolioId: 15,
+    sourceAccountId: `eip155:42161:${ownerAddress}`,
+  });
+
+  // These checks used to be local mustMatch calls in the method bodies. Keep
+  // them at the exo boundary now that the interface guard owns validation.
+  t.throws(() =>
+    evmHandler.grant('agoric1delegate', { allocation: 'true' } as any),
+  );
+  t.throws(() => evmHandler.setAutoFeatures({ rebalance: 'true' } as any));
+});
+
 test('evmHandler grant allocates sequential agent ids', async t => {
   const ownerAddress = '0x3434343434343434343434343434343434343434' as const;
   const { makePortfolioKit, getCallLog } = makeTestSetup();
