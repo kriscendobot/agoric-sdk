@@ -200,8 +200,21 @@ export const prepareEVMPortfolioOperationManager = (
 ) => {
   const makeOutcomeHandlers = zone.exoClassKit(
     'OperationOutcomeHandlers',
-    /// XXX should have interface guard
-    undefined,
+    // These are internal vow watchers (see {@link handleOperation}); the
+    // fulfillment value and rejection reason are arbitrary passables and the
+    // return value is forwarded to another watcher facet, so the guards stay
+    // deliberately permissive. The optional second argument leaves room for a
+    // future watcher context argument without breaking existing incarnations.
+    {
+      OpenOutcomeWatcher: M.interface('OpenOutcomeWatcher', {
+        onFulfilled: M.call(M.any()).optional(M.any()).returns(M.any()),
+        onRejected: M.call(M.any()).optional(M.any()).returns(M.any()),
+      }),
+      BasicOutcomeWatcher: M.interface('BasicOutcomeWatcher', {
+        onFulfilled: M.call(M.any()).optional(M.any()).returns(M.any()),
+        onRejected: M.call(M.any()).optional(M.any()).returns(M.any()),
+      }),
+    },
     (data: {
       wallet: EVMWallet;
       storageNode: Remote<StorageNode>;

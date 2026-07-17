@@ -192,7 +192,21 @@ export const extractEvmRemoteAccountConfig = (
   };
 };
 
-const interfaceTODO = undefined;
+/**
+ * Interface guard for the public facet ({@link publicFacet}).
+ *
+ * The EVM-facing methods carry evolving CopyRecord payloads (operation data,
+ * permit details, EIP-712 domains), so their arguments are guarded with
+ * `M.any()` to remain compatible as those structures grow; only the method
+ * names, arity, and the invitation-returning result are pinned down.
+ */
+const PortfolioPubI = M.interface('PortfolioPub', {
+  makeOpenPortfolioInvitation: M.callWhen().returns(InvitationShape),
+  openPortfolioFromEVM: M.call(M.any(), M.any()).returns(M.promise()),
+  validateEVMMessageDomain: M.call(M.any())
+    .optional(M.any())
+    .returns(M.promise()),
+});
 
 const EVMContractAddressesShape: TypedPattern<EVMContractAddresses> =
   M.splitRecord(
@@ -733,7 +747,7 @@ export const contract = async (
       }
     : () => {};
 
-  const publicFacet = zone.exo('PortfolioPub', interfaceTODO, {
+  const publicFacet = zone.exo('PortfolioPub', PortfolioPubI, {
     /**
      * Make an invitation to open a new portfolio.
      *
@@ -752,6 +766,9 @@ export const contract = async (
       trace('makeOpenPortfolioInvitation');
       return zcf.makeInvitation(
         async (seat, offerArgs) => {
+          // This offer handler is a plain function, not an exo method, so
+          // `zcf.makeInvitation` gives it no interface guard for `offerArgs`
+          // (only the proposal shape below); validate it here.
           mustMatch(offerArgs, offerArgsShapes.openPortfolio);
           await null;
           consumeAccessToken(seat);
