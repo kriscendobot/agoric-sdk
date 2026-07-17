@@ -235,8 +235,6 @@ harden(GMPAccountInfoShape);
  *   shape already exists for such a read-back value, the guard uses the
  *   forward-compatible `*Ext` variant (e.g. `TargetAllocationShapeExt`,
  *   `PortfolioAutoFeaturesExtShape`) rather than the closed precise shape.
- *   Scalars whose meaning is stable (ids, counts, chain names, EVM addresses,
- *   flow-id strings) are pinned precisely.
  * - Watcher facets (`accountWatcher`, `parseInboundTransferWatcher`) and the
  *   `tap` upcall are invoked by the vow/transfer machinery with a settled value
  *   and an optional context; their guards leave that value unconstrained
@@ -368,9 +366,8 @@ const makePortfolioKitInterface = (
       rebalance: M.call().optional(M.any(), M.any()).returns(M.string()),
       withdraw: M.call(M.record()).returns(M.string()),
       // `grant`/`setAutoFeatures` wrap their body in `vowTools.asVow`, so they
-      // return a Vow; the grantee address is a stable scalar, and permissions /
-      // features are pinned here to their precise shapes (this guard is the input
-      // check, replacing the former internal `mustMatch`).
+      // return a Vow. This guard is the input check, replacing the former
+      // internal `mustMatch`.
       grant: M.call(M.string(), PortfolioPermissionsShape).returns(VowShape),
       setAutoFeatures: M.call(PortfolioAutoFeaturesShape).returns(VowShape),
     }),
