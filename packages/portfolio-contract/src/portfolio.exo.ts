@@ -228,63 +228,11 @@ harden(GMPAccountInfoShape);
 /**
  * Interface guards for the {@link PortfolioKit} facets.
  *
- * Guards are the *runtime* enforcement (static types are advisory devex), so
- * the default is that each guard **matches its method's static type** — see
- * CONTRIBUTING § `TypedPattern`s. Where a stable shape already exists it is
- * named precisely: results carrying a `` `flow${number}` `` key use
- * `FlowKeyShape`; `Position` remotables use `M.remotable('Position')`;
- * `reporter.publishFlowSteps`' steps argument uses `FlowStepsShape`; the
- * `FlowDetail` argument uses `FlowDetailShape`; a `TargetAllocation` uses the
- * forward-compatible `TargetAllocationShapeExt`.
- *
- * The remaining loose guards (`M.any()` / `M.record()` / `VowShape`) are
- * *deliberate, enumerated exceptions*, each for one of these reasons:
- *
- * - **Read back out of long-lived, upgrade-in-place state.** A closed shape
- *   would retroactively reject data written by an earlier incarnation once a
- *   future one widens it, so these stay loose — but only as loose as needed:
- *   where a stable shape exists the guard uses the forward-compatible `*Ext`
- *   variant (`TargetAllocationShapeExt`, `PortfolioAutoFeaturesExtShape`,
- *   `GMPAccountInfoShape`) rather than bare `M.any()`. The `AccountInfo` union
- *   written via `manager.initAccountInfo` / `resolveAccount` (whose Agoric and
- *   Noble variants embed remotables) has no single closed shape, so those args
- *   stay `M.any()`; `reader.accountIdByChain` / `accountStateByChain` return
- *   records derived from that durable state.
- * - **Watcher / upcall settled values.** The vow/transfer machinery invokes
- *   `accountWatcher`, `parseInboundTransferWatcher`, and the `tap` upcall with
- *   an arbitrary settled value and an optional context; the settled value is
- *   legitimately unconstrained (`M.any()` plus an optional trailing argument).
- * - **Async-flow guest membrane.** `reader.getStoragePath` returns a `Vow` in
- *   production but a `Promise` when reached through the async-flow membrane
- *   (see `portfolio.flows.ts`), so its guard accepts either
- *   (`M.or(VowShape, M.promise())`). `manager.reserveAccount` /
- *   `reserveAccountState` / `startFlow` likewise hand `Vow`s back across that
- *   boundary, so their results stay `M.any()`.
- * - **Re-validated inside the handler.** The EVM permit / EIP-712 payloads
- *   (`evmHandler.deposit` / `rebalance` / `withdraw` args) are evolving records
- *   re-checked in-body, so their *arguments* stay loose while their flow-id
- *   *results* are pinned to `FlowKeyShape`.
- * - **Merged, evolving published payload.** `reporter.publishFlowStatus`'
- *   `status` argument is a *superset* of the static `FlowStatus`: the callers
- *   fold the flow's `...flowDetail` (and, on failure, the `...reasons` chain)
- *   into it before publishing, so it carries detail fields beyond what a closed
- *   `FlowStatus` shape admits; kept `M.any()`.
- * - **Opaque by contract.** `manager.releaseAccount`'s failure `reason` is
- *   `unknown`; `planner.resolveFlowPlan`'s plan is fed straight into a vow
- *   resolver and has no single exported union shape.
- *
- * Call-convention accommodations, orthogonal to the above:
- * - `rebalanceHandler.handle` is `async` (the other offer handlers are
- *   synchronous), so it returns a promise of the flow-id key (`M.promise()`).
- * - `withdrawHandler.handle` ignores `offerArgs`, so its guard leaves the
- *   trailing argument optional and unconstrained.
- * - `evmHandler.rebalance` is called with `(undefined, permitDetails)` as well
- *   as `(allocations, permitDetails)`, so both arguments are optional.
- * - `manager.grantDelegation` / `setAutoFeatures` and `evmHandler.grant` /
- *   `setAutoFeatures` guard against the *closed* `PortfolioPermissionsShape` /
- *   `PortfolioAutoFeaturesShape` (rather than the extensible `*Ext` static
- *   type): here the guard is the input check that replaced an internal
- *   `mustMatch`, so it is deliberately *stricter* than the static type.
+ * Guards are runtime enforcement, so they normally match their method's static
+ * type. Results produced by the current call, such as flow keys, use precise
+ * shapes. A value read from upgrade-in-place state uses a forward-compatible
+ * shape when available, since a future incarnation can widen stored data.
+ * Other deliberate exceptions are documented beside their methods.
  *
  * A factory (rather than a module constant) because the `offerArgsShapes` used
  * by the offer-handler guards are built per-contract from the USDC brand.
