@@ -54,8 +54,7 @@ Counting stays an accounting-only act against the existing `beansOwing`
 balance, and the deduction moves into the ante handler, expressed in
 gas-meter terms. `ChargeBeans` splits into `AddBeansOwing` (track debt,
 never touch the bank) and `ChargeBeansNow` (drain the debt into coins now,
-leaving only dust — the actual charging mechanics, shared by the ante
-handler and by every other synchronous charge site). A minimum-gas-price
+leaving only dust, at the ante-handler charging point). A minimum-gas-price
 parameter ties the two worlds together: during simulation it translates
 bean fees into extra `gas_used` so the client's estimate covers them;
 during execution it is an enforced floor on the tx's effective gas price,
@@ -119,7 +118,7 @@ reusing the existing `StringBeans` shape so JS mirrors
 (`packages/cosmic-swingset/src/sim-params.js`, which today mirrors
 `default-params.go`) extend naturally.
 
-### Splitting `ChargeBeans`: counting is accounting, charging is a shared worker
+### Splitting `ChargeBeans`: counting is accounting, charging is in ante
 
 Today the charge rides `AdmissionDecorator` → `CheckAdmissibility` →
 `chargeAdmission` → `ChargeBeans`, which both tracks the debt and (past
@@ -138,12 +137,9 @@ the `minFeeDebit` threshold) moves coins. Split
   threshold); convert the owed beans into coins by the existing arithmetic
   (`beans × fee_unit_price / beans_per_unit["feeUnit"]`) and, via
   `min_gas_price`, into a gas amount. It performs the coin movement for
-  the caller unless the caller (the ante decorator) opts to take the
-  computed `beanFees` and dispose of them itself (burn/collector split);
-  it returns both the gas due to beans and the fee due to beans so either
-  caller can act. This is the shared worker the reviewer asked for: used
-  inside the ante decorators AND inside synchronous charge sites like
-  `ChargeForSmartWallet`.
+  the caller unless the ante decorator opts to take the computed `beanFees`
+  and dispose of them itself (burn/collector split). It returns both the gas
+  due to beans and the fee due to beans for the ante decorator to act on.
 
 All `vm.ControllerAdmissionMsg` implementations switch from `ChargeBeans`
 to `AddBeansOwing` — admission keeps *counting* exactly where it counts
@@ -162,19 +158,20 @@ this lands, with no state migration.
 #### Every `ChargeBeans` caller, retargeted
 
 There are exactly two live `ChargeBeans` call sites in non-test code; each
-becomes bean accounting followed by `ChargeBeansNow`:
+becomes bean accounting. `BeanFeeDecorator` is the single place that calls
+`ChargeBeansNow` after those calls have recorded the transaction's debt:
 
 - **`chargeAdmission`** (`golang/cosmos/x/swingset/types/msgs.go`) — the
   admission formula for `vm.ControllerAdmissionMsg` types. Its per-unit
   `beans.Add(...)` accumulation becomes `AddBeansOwing` calls; the trailing
   `keeper.ChargeBeans(...)` is dropped, because the tx's ante
   `BeanFeeDecorator` now performs the conversion via `ChargeBeansNow`.
-- **`ChargeForSmartWallet`** (`golang/cosmos/x/swingset/keeper/keeper.go`,
+- **`AddBeansOwingForSmartWallet`** (`golang/cosmos/x/swingset/keeper/keeper.go`,
   reached from `checkSmartWalletProvisioned` during wallet-action
-  admission) — split into a bean-accounting portion (`AddBeansOwing` of
-  `beans_per_unit["smartWalletProvision"]`) followed by `ChargeBeansNow`,
-  so the provisioning charge is drained immediately rather than lingering
-  in `beansOwing`.
+  admission) — renamed from `ChargeForSmartWallet` because it only calls
+  `AddBeansOwing` for `beans_per_unit["smartWalletProvision"]`. It does not
+  call `ChargeBeansNow`; the same transaction's `BeanFeeDecorator` drains
+  the accumulated debt.
 
 `ChargeForProvisioning` / `calculateFees` (`PowerFlagFees`) is **not** a
 `ChargeBeans` caller — it moves coins directly with
@@ -332,16 +329,17 @@ decided in review and are now settled in the design above:
 - **Minimum gas price.** A dedicated `min_gas_price` DecCoins param (no
   chain-consensus min gas price exists to reuse; the cosmos-sdk
   `minimum-gas-prices` is node-local only).
-- **Residual `beansOwing` charges.** A `ChargeBeansNow(ctx, addr)` worker
-  drains as much of an address's accumulated bean debt as possible to
-  coins immediately (leaving dust), used by the ante decorators and by
-  split synchronous charge sites like `ChargeForSmartWallet`, so no charge
-  waits for the old threshold-debit.
+- **Residual `beansOwing` charges.** `BeanFeeDecorator` calls
+  `ChargeBeansNow(ctx, addr)` after every transaction's accounting calls,
+  draining as much of the address's accumulated bean debt as possible to
+  coins immediately (leaving dust), so no charge waits for the old
+  threshold-debit.
 - **Burn per-denom.** `bean_fee_burn_fraction` is DecCoins, so the burn
   fraction is per-denom (BLD burns, IST need not).
 - **Lingering `ChargeBeans` callers.** The two live callers
-  (`chargeAdmission`, `ChargeForSmartWallet`) are retargeted to bean
-  accounting + `ChargeBeansNow`; no other caller remains.
+  (`chargeAdmission`, `ChargeForSmartWallet`, renamed
+  `AddBeansOwingForSmartWallet`) are retargeted to bean accounting only;
+  `BeanFeeDecorator` is the sole `ChargeBeansNow` caller.
 - **Fee-payer identity.** Synchronous work charges the tx fee payer, which
   the automatic gas simulation has already estimated; async attribution is
   deferred to future work.
