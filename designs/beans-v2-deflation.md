@@ -53,14 +53,16 @@ changes:
 Counting stays an accounting-only act against the existing `beansOwing`
 balance, and the deduction moves into the ante handler, expressed in
 gas-meter terms. `ChargeBeans` splits into `AddBeansOwing` (track debt,
-never touch the bank) and `ConvertBeansOwing` (drain the debt into a gas
-amount and a fee amount at ante time). A minimum-gas-price parameter ties
-the two worlds together: during simulation it translates bean fees into
-extra `gas_used` so the client's estimate covers them; during execution it
-is an enforced floor on the tx's effective gas price, so the extra gas
-consumed corresponds to real fee value. The bean calculations currently
-hardcoded in Go migrate into `msg_type_bean_overrides` entries, so the
-formula itself — not just its prices — becomes a governance parameter.
+never touch the bank) and `ChargeBeansNow` (drain the debt into coins now,
+leaving only dust — the actual charging mechanics, shared by the ante
+handler and by every other synchronous charge site). A minimum-gas-price
+parameter ties the two worlds together: during simulation it translates
+bean fees into extra `gas_used` so the client's estimate covers them;
+during execution it is an enforced floor on the tx's effective gas price,
+so the extra gas consumed corresponds to real fee value. The bean
+calculations currently hardcoded in Go migrate into
+`msg_type_bean_overrides` entries, so the formula itself — not just its
+prices — becomes a governance parameter.
 
 ### New `x/swingset` parameters
 
@@ -68,32 +70,48 @@ Extend `Params` in `swingset.proto` (all reachable through the existing
 legacy `x/params` subspace, `ParamKeyTable` in
 `golang/cosmos/x/swingset/types/params.go`, so requirement 1 is satisfied
 by the same param-change proposal path that already governs
-`beans_per_unit`):
+`beans_per_unit`). The module stays on the legacy `x/params` subspace for
+now; a separate comprehensive update PR migrates the module to
+`MsgUpdateParams`, so this design does not take that on:
 
 ```protobuf
-// Per-message-type bean charges, keyed by proto type URL.
-// A matching entry REPLACES the default admission formula for that type;
-// each beans entry pairs a beans_per_unit-style unit key with the bean
-// price this message type pays per occurrence of that unit. An entry may
-// name a type with no default charge (for example
+// Per-message-type bean charges, keyed by proto type URL. Each entry is a
+// self-contained PRICE MENU for that message type: a matching entry
+// REPLACES the default admission formula, and every [unit, value] pair is
+// read as `value` beans charged per occurrence of `unit` (1 for `message`,
+// the byte count for `messageByte`, …) with NO scaling by the global
+// `beans_per_unit` rate. A pair `[unit, "0"]` removes that unit's
+// influence on the cost entirely. An entry may name a type with no default
+// charge (for example
 // "/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward").
 repeated MsgTypeBeans msg_type_bean_overrides = 11;
 
-// Disposition of collected bean fees: the fraction burned, with the
-// remainder sent to bean_fee_collector.
-string bean_fee_burn_fraction = 12;   // LegacyDec in [0,1], default "0"
+// Disposition of collected bean fees: the fraction burned PER DENOM, with
+// the remainder sent to bean_fee_collector. DecCoins (the cosmos-sdk type
+// `cosmos.base.v1beta1.DecCoin` repeated, Go `sdk.DecCoins` — already used
+// in this file via sdk.NewDecCoinsFromCoins), so BLD can burn while IST,
+// whose supply is managed by Inter Protocol, does not. Each denom's
+// decimal is a burn fraction in [0,1]; a denom absent from the list burns
+// nothing. Default [] (burn nothing) preserves current behavior.
+repeated cosmos.base.v1beta1.DecCoin bean_fee_burn_fraction = 12;
 
 // Module account receiving the unburned remainder.
 // Default "vbank/reserve" preserves current behavior.
 string bean_fee_collector = 13;
 
-// Minimum gas price. Dual role: during simulation it translates bean
-// fees into extra gas (gas += bean fee ÷ bean_gas_price) so the client's
-// (gas × gas-price) estimate covers the bean deduction; during execution
-// it is an enforced floor on supplied_fees / supplied_gas_limit, so the
-// bean gas counted against the meter corresponds to at least the bean
-// fee in real coins.
-repeated cosmos.base.v1beta1.DecCoin bean_gas_price = 14;
+// Minimum gas price, DecCoins (`cosmos.base.v1beta1.DecCoin` repeated).
+// Dual role: during simulation it translates bean fees into extra gas
+// (gas += bean fee ÷ min_gas_price) so the client's (gas × gas-price)
+// estimate covers the bean deduction; during execution it is an enforced
+// floor on supplied_fees / supplied_gas_limit, so the bean gas counted
+// against the meter corresponds to at least the bean fee in real coins.
+// Cosmos-sdk today exposes only a NODE-LOCAL `minimum-gas-prices` server
+// config (set to "0ubld" in golang/cosmos/daemon/cmd/root.go), which is
+// per-validator and not a chain-consensus value, so there is nothing to
+// reuse; this is a dedicated governance param. Named `min_gas_price`
+// (not `bean_gas_price`) so a future consensus-level min gas price can
+// subsume it.
+repeated cosmos.base.v1beta1.DecCoin min_gas_price = 14;
 ```
 
 `MsgTypeBeans` is `{ string msg_type_url; repeated StringBeans beans; }`,
@@ -101,7 +119,7 @@ reusing the existing `StringBeans` shape so JS mirrors
 (`packages/cosmic-swingset/src/sim-params.js`, which today mirrors
 `default-params.go`) extend naturally.
 
-### Splitting `ChargeBeans`: counting is accounting, conversion is ante
+### Splitting `ChargeBeans`: counting is accounting, charging is a shared worker
 
 Today the charge rides `AdmissionDecorator` → `CheckAdmissibility` →
 `chargeAdmission` → `ChargeBeans`, which both tracks the debt and (past
@@ -111,17 +129,21 @@ the `minFeeDebit` threshold) moves coins. Split
 - **`AddBeansOwing(ctx, addr, msgType, unit, amount)`** — accounting
   only: record bean debt in the `x/swingset` KVStore (`beansOwing`),
   never touch a bank account. The `msgType`/`unit` arguments let the
-  keeper consult `msg_type_bean_overrides` (an override entry replaces
-  the default per-unit price for that message type) and emit a typed
-  provenance event per charge.
-- **`ConvertBeansOwing(ctx, beansPerUnit, addr, suppliedGasLimit,
-  suppliedFees) (beanGas, beanFees)`** — drain the address's
-  `beansOwing` balance, leaving only dust or nothing; convert the owed
-  beans into coins by the existing arithmetic
-  (`beans × fee_unit_price / beans_per_unit["feeUnit"]`) and, via the
-  minimum gas price, into a gas amount. Returns the gas due to beans and
-  the fee due to beans for the caller to dispose of; the keeper itself
-  moves no coins here either.
+  keeper consult `msg_type_bean_overrides` (a matching entry is a
+  price menu that replaces the default per-unit price for that message
+  type) and emit a typed provenance event per charge.
+- **`ChargeBeansNow(ctx, addr) (beanGas, beanFees)`** — the actual
+  charging mechanics: drain the address's `beansOwing` balance, leaving
+  only dust or nothing (rather than waiting for the `minFeeDebit`
+  threshold); convert the owed beans into coins by the existing arithmetic
+  (`beans × fee_unit_price / beans_per_unit["feeUnit"]`) and, via
+  `min_gas_price`, into a gas amount. It performs the coin movement for
+  the caller unless the caller (the ante decorator) opts to take the
+  computed `beanFees` and dispose of them itself (burn/collector split);
+  it returns both the gas due to beans and the fee due to beans so either
+  caller can act. This is the shared worker the reviewer asked for: used
+  inside the ante decorators AND inside synchronous charge sites like
+  `ChargeForSmartWallet`.
 
 All `vm.ControllerAdmissionMsg` implementations switch from `ChargeBeans`
 to `AddBeansOwing` — admission keeps *counting* exactly where it counts
@@ -132,73 +154,132 @@ but no admission path (arbitrary Cosmos messages such as
 which iterates `tx.GetMsgs()` and keys `sdk.MsgTypeURL(msg)` into the
 overrides (requirement 2: any message type can carry a charge).
 
-Because `ConvertBeansOwing` drains the *whole* balance, it also sweeps
+Because `ChargeBeansNow` drains the *whole* balance, it also sweeps
 debt accrued under the old batching model by earlier transactions — the
 `minFeeDebit` threshold stops governing tx-submitter charges the moment
 this lands, with no state migration.
 
+#### Every `ChargeBeans` caller, retargeted
+
+There are exactly two live `ChargeBeans` call sites in non-test code; each
+becomes bean accounting followed by `ChargeBeansNow`:
+
+- **`chargeAdmission`** (`golang/cosmos/x/swingset/types/msgs.go`) — the
+  admission formula for `vm.ControllerAdmissionMsg` types. Its per-unit
+  `beans.Add(...)` accumulation becomes `AddBeansOwing` calls; the trailing
+  `keeper.ChargeBeans(...)` is dropped, because the tx's ante
+  `BeanFeeDecorator` now performs the conversion via `ChargeBeansNow`.
+- **`ChargeForSmartWallet`** (`golang/cosmos/x/swingset/keeper/keeper.go`,
+  reached from `checkSmartWalletProvisioned` during wallet-action
+  admission) — split into a bean-accounting portion (`AddBeansOwing` of
+  `beans_per_unit["smartWalletProvision"]`) followed by `ChargeBeansNow`,
+  so the provisioning charge is drained immediately rather than lingering
+  in `beansOwing`.
+
+`ChargeForProvisioning` / `calculateFees` (`PowerFlagFees`) is **not** a
+`ChargeBeans` caller — it moves coins directly with
+`SendCoinsFromAccountToModule` and is already coin-denominated — so it is
+untouched (see Out of scope). The `SwingSetKeeper` interface
+(`expected_keepers.go`) and generated mocks update to expose
+`AddBeansOwing`/`ChargeBeansNow` alongside (or in place of) `ChargeBeans`.
+
 ### `BeanFeeDecorator`: enforcement and disposition (requirement 4)
 
-The new/updated decorator in `golang/cosmos/ante` runs **before the builtin
-Cosmos SDK gas/fee ante processing** (`ante.NewDeductFeeDecoratorWithName`),
-so the bean skim happens ahead of conventional execution:
+The builtin Cosmos SDK `DeductFeeDecorator`
+(`ante.NewDeductFeeDecoratorWithName`) is **removed from the ante chain**
+in `golang/cosmos/ante/ante.go`. In its place, a new `BeanFeeDecorator`
+**explicitly wraps** the builtin decorator — it constructs the builtin
+`DeductFeeDecorator` internally and calls it directly. This gives the bean
+logic a place to stand: it can convert and dispose of `beanFees` and then
+hand the builtin decorator `suppliedFees − beanFees`, so the builtin
+operates on the net-of-beans fee without any modification to the
+decorator-chain driver (`sdk.ChainAnteDecorators`) or to the builtin
+decorator itself.
+
+Ordering follows from the wrap: the admission/counting controllers run
+first (so `AddBeansOwing` has recorded the debt), then `BeanFeeDecorator`
+runs a single, self-contained "convert beans, then deduct the net fee"
+stage. The admission-counting decorator therefore moves ahead of
+`BeanFeeDecorator` in the chain; because `BeanFeeDecorator` wraps the
+builtin, no further chain reordering is needed to interleave bean
+conversion with fee deduction.
 
 ```mermaid
 flowchart LR
   A[tx msgs] --> B[count: AddBeansOwing\nvia overrides or admission formula]
   B --> C[BeanFeeDecorator]
   C --> D{executing?}
-  D -- yes --> E[require gasLimit > 0 and\nfees/gasLimit ≥ bean_gas_price]
-  E --> F["ConvertBeansOwing →\n(beanGas, beanFees)"]
+  D -- yes --> E[require gasLimit > 0 and\nfees/gasLimit ≥ min_gas_price]
+  E --> F["ChargeBeansNow →\n(beanGas, beanFees)"]
   D -- simulate --> F
   F --> G[consume beanGas\nfrom gas meter]
-  F -- executing only --> H[deduct beanFees]
-  H --> I[burn bean_fee_burn_fraction share]
+  F -- executing only --> H[deduct + dispose beanFees]
+  H --> I[burn bean_fee_burn_fraction share per denom]
   H --> J[send remainder to bean_fee_collector]
-  G & J --> K[standard Cosmos\ngas/fee ante processing]
+  G & J --> K["wrapped DeductFeeDecorator\non suppliedFees − beanFees"]
 ```
 
 - **Floor check (executing only):** require `suppliedGasLimit > 0` and
-  effective gas price `suppliedFees / suppliedGasLimit ≥ bean_gas_price`.
+  effective gas price `suppliedFees / suppliedGasLimit ≥ min_gas_price`.
   This is what makes the gas-meter expression of bean fees sound: gas
   consumed at a floored price is worth at least the corresponding coins.
-- **Convert:** call `swingsetKeeper.ConvertBeansOwing(...)`, then count
+- **Convert:** call `swingsetKeeper.ChargeBeansNow(...)`, then count
   `beanGas` against the context's gas meter — the bean charge occupies
   part of the supplied gas limit.
-- **Dispose (executing only):** deduct `beanFees` from the payer and
-  split it per params — `bean_fee_burn_fraction` of the coins destroyed
-  with `BankKeeper.BurnCoins` via the `x/swingset` module account (the
-  deflationary arm), the remainder forwarded
+- **Dispose (executing only):** deduct `beanFees` from the fee payer and
+  split it per params — for each denom, `bean_fee_burn_fraction`'s share
+  of the coins destroyed with `BankKeeper.BurnCoins` via the `x/swingset`
+  module account (the deflationary arm), the remainder forwarded
   `SendCoinsFromModuleToModule` to `bean_fee_collector` (default
   `vbank/reserve`; other useful values: `authtypes.FeeCollectorName` so
   vbank's reward smoothing pays validators, or `vbank/giveaway`).
   Insufficient funds reject the tx up front instead of mid-execution.
-  How the builtin `DeductFeeDecorator` then sees the remaining fee
-  (deduct `suppliedFees − beanFees`, or an equivalent carve-out) is an
-  implementation point flagged in Open questions.
+- **Deduct the net fee:** invoke the wrapped builtin `DeductFeeDecorator`
+  on `suppliedFees − beanFees`, so the standard Cosmos fee deduction never
+  double-charges the bean portion.
 - **Transparency events:** the decorator emits a typed event per charge
   (msg type URL, beans, coins, disposition split) so explorers and
   wallets can display what was deducted and why.
+
+The fee payer is charged for all of this synchronous work. Because bean
+fees are folded into the gas simulation (below), the automatic gas
+estimate the client signs already covers them, so charging the tx fee
+payer — the same account that pays Cosmos gas, and that can be a feegrant
+— is correct and needs no per-message submitter bookkeeping. (If later
+work adds *asynchronous* bean accounting and conversion with no signing
+tx to attribute, deciding which account it bills is a separate problem to
+solve then.)
 
 ### Simulation and gas estimates (requirement 3)
 
 `AdmissionDecorator.AnteHandle` already special-cases `simulate` (it
 swallows admission errors "otherwise our gas estimation will be too
 low"). Under `simulate`, `BeanFeeDecorator` skips the floor check and all
-bank movements but still calls `ConvertBeansOwing` and consumes `beanGas`
-(`beanGas = bean fee coins ÷ bean_gas_price`) — so the standard Cosmos
+bank movements but still calls `ChargeBeansNow` and consumes `beanGas`
+(`beanGas = bean fee coins ÷ min_gas_price`) — so the standard Cosmos
 simulate RPC returns a `gas_used` that already includes the bean charge.
 A client that multiplies that estimate by its own gas price (which the
-execution-time floor forces to be at least `bean_gas_price`) covers the
+execution-time floor forces to be at least `min_gas_price`) covers the
 bean fee with no new API; existing wallets see the combined fee up
 front. The simulate response's message logs additionally carry the typed
 charge event for clients that want to itemize.
 
+### Exemptions
+
+The exemptions that exist today continue to be allowed. Privileged
+provisioning via the `provisionpass` balance (`privilegedProvisioningCoins`
+in `golang/cosmos/x/swingset/keeper/keeper.go`) and existing
+high-priority-queue carve-outs keep waiving SwingSet message charges as
+they do now. A governance-set override charge on an arbitrary Cosmos
+message type (say `MsgWithdrawDelegatorReward`) rides the ante path and is
+not subject to those SwingSet-specific carve-outs, but the SwingSet
+message charges retain their existing exemptions unchanged.
+
 ### Migration
 
 - Genesis/upgrade default: `msg_type_bean_overrides = []`,
-  `bean_fee_burn_fraction = "0"`, `bean_fee_collector = "vbank/reserve"`,
-  `bean_gas_price` unset (simulation folding and floor off). With those
+  `bean_fee_burn_fraction = []`, `bean_fee_collector = "vbank/reserve"`,
+  `min_gas_price` unset (simulation folding and floor off). With those
   defaults the chain behaves exactly as today; every deviation is a later
   governance act.
 - **Go formula → params:** migrate the bean
@@ -211,8 +292,7 @@ charge event for clients that want to itemize.
   message type's charge is a param change, no software upgrade
   (requirement 1 applied to the formula, not just the prices). The
   hardcoded formula remains only as the fallback for types with no
-  override entry — or is deleted once the seeding is trusted; see Open
-  questions.
+  override entry — or is deleted once the seeding is trusted.
 - `UpdateParams` in `golang/cosmos/x/swingset/types/params.go` already
   appends missing entries with defaults; the new fields follow the same
   pattern, so the upgrade handler needs no bespoke state migration beyond
@@ -227,70 +307,43 @@ charge event for clients that want to itemize.
   `packages/cosmic-swingset/src/launch-chain.js`): that is a block run
   policy, not a per-account fee, and is untouched here.
 - `PowerFlagFees` provisioning fees (`ChargeForProvisioning`,
-  `calculateFees`): already coin-denominated parameters; unchanged.
+  `calculateFees`): already coin-denominated parameters, and not a
+  `ChargeBeans` caller; unchanged.
 - Contract-level (Zoe/IST) fee policy: this design is chain-layer only.
+- Migrating `x/swingset` off the legacy `x/params` subspace to
+  `MsgUpdateParams`: handled by a separate comprehensive update PR.
 
-## Open questions
+## Resolved review decisions
 
-- **Override entry semantics.** This design reads each `[unit, value]`
-  pair in an override entry as a per-message-type *price menu* — `value`
-  beans per occurrence of `unit` (1 for `message`, the byte count for
-  `messageByte`, …) — because that reading lets the seeded entries express
-  today's size-dependent admission formula. The alternative reading
-  (`value` = a count of `unit`s priced at the global `beans_per_unit`
-  rate) cannot express per-byte terms statically. Confirm the intended
-  semantics.
-- **Interplay with the builtin `DeductFeeDecorator`.** After
-  `BeanFeeDecorator` deducts and disposes of `beanFees`, does the builtin
-  fee deduction operate on `suppliedFees − beanFees` (requires adjusting
-  the fee the decorator chain sees) or on the full fee with the bean
-  portion carved out of the fee collector afterwards? The net-of-beans
-  reading avoids double-charging and is assumed here.
-- **Decorator ordering.** Today `AdmissionDecorator` (where counting
-  happens) sits *after* `ante.NewDeductFeeDecoratorWithName`; the bean
-  conversion must run after counting but before the builtin fee
-  deduction. Does the admission/counting stage move earlier wholesale,
-  or does `BeanFeeDecorator` take over counting for the current tx? The
-  ante chain in `golang/cosmos/ante/ante.go` needs an explicit new order.
-- **Where does the minimum gas price live?** This design gives it a
-  dedicated `bean_gas_price` DecCoin param; an alternative encodes it in
-  `beans_per_unit` parameter values (entries in the existing menu, which
-  are unit-keyed `sdk.Uint`s and would need a denom convention). A
-  dedicated field is more legible; the menu encoding avoids a proto
-  change. Related: should it instead reuse a consensus-level min-gas-price
-  so the fold-in cannot drift from what validators charge for gas?
-- **Residual `beansOwing` uses.** `ConvertBeansOwing` supersedes the
-  `minFeeDebit` threshold for tx-submitter charges, but charges with no
-  enclosing tx to drain them — for example `ChargeForSmartWallet`
-  (auto-provision during wallet-action admission) or future contract-side
-  billing — still accrue. Do those keep the old threshold-debit path, or
-  wait for the address's next signed tx to sweep them?
-- **Does the burn apply per-denom?** `fee_unit_price` is `Coins`; burning
-  `ubld` is deflationary for BLD, burning IST has different monetary
-  semantics (IST supply is managed by Inter Protocol). Should
-  `bean_fee_burn_fraction` be per-denom, or should validation constrain
-  `fee_unit_price` to a single denom when the burn fraction is nonzero?
-- **Lingering `ChargeBeans` callers.** With the split, admission-path
-  counting goes through `AddBeansOwing` and no coin movement happens
-  outside the decorator; confirm no other `ChargeBeans` caller remains
-  (and that simulate-mode `CheckAdmissibility` counting cannot inflate
-  estimates twice now that counting is bankless).
-- **Exemptions.** Do override charges bypass exemptions that exist today,
-  such as privileged provisioning via the `provisionpass` balance
-  (`privilegedProvisioningCoins` in
-  `golang/cosmos/x/swingset/keeper/keeper.go`) and high-priority-queue
-  senders? A governance-set charge on, say,
-  `MsgWithdrawDelegatorReward` presumably should not be waivable, but
-  SwingSet message charges may want to keep the existing carve-outs.
-- **Fee-payer identity.** `chargeAdmission` charges the message's
-  submitter/owner field, while Cosmos gas is paid by the tx fee payer
-  (possibly a feegrant) — and `ConvertBeansOwing` takes a single `addr`.
-  Should the decorator convert/charge the fee payer (aligning with gas,
-  enabling feegrants for bean fees) or preserve per-message submitter
-  billing, draining each message-owner's balance separately?
-- **Parameter plumbing.** `x/swingset` still uses the legacy `x/params`
-  subspace on cosmos-sdk v0.53.4. Add the new fields to the same subspace
-  (cheapest, consistent), or take this as the moment to migrate the
-  module to self-owned params with `MsgUpdateParams` gated on the
-  governance authority address (the keeper already receives
-  `authtypes.NewModuleAddress(govtypes.ModuleName)` in `app.go`)?
+The following points, raised as open questions in earlier drafts, were
+decided in review and are now settled in the design above:
+
+- **Override entry semantics.** Each override entry is a per-message-type
+  price menu: `value` beans per occurrence of `unit`, with no scaling by
+  the global `beans_per_unit` rate. `[unit, "0"]` removes that unit's
+  influence on the cost.
+- **Interplay with the builtin `DeductFeeDecorator`.** The builtin is
+  removed from the chain and wrapped by `BeanFeeDecorator`, which feeds it
+  `suppliedFees − beanFees`; the net-of-beans reading avoids
+  double-charging.
+- **Decorator ordering.** Because `BeanFeeDecorator` wraps the builtin,
+  the chain needs only "admission controllers, then `BeanFeeDecorator`";
+  no other chain-driver modification is required.
+- **Minimum gas price.** A dedicated `min_gas_price` DecCoins param (no
+  chain-consensus min gas price exists to reuse; the cosmos-sdk
+  `minimum-gas-prices` is node-local only).
+- **Residual `beansOwing` charges.** A `ChargeBeansNow(ctx, addr)` worker
+  drains as much of an address's accumulated bean debt as possible to
+  coins immediately (leaving dust), used by the ante decorators and by
+  split synchronous charge sites like `ChargeForSmartWallet`, so no charge
+  waits for the old threshold-debit.
+- **Burn per-denom.** `bean_fee_burn_fraction` is DecCoins, so the burn
+  fraction is per-denom (BLD burns, IST need not).
+- **Lingering `ChargeBeans` callers.** The two live callers
+  (`chargeAdmission`, `ChargeForSmartWallet`) are retargeted to bean
+  accounting + `ChargeBeansNow`; no other caller remains.
+- **Fee-payer identity.** Synchronous work charges the tx fee payer, which
+  the automatic gas simulation has already estimated; async attribution is
+  deferred to future work.
+- **Parameter plumbing.** Stay on the legacy `x/params` subspace for now;
+  a separate PR migrates to `MsgUpdateParams`.
