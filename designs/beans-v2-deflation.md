@@ -53,9 +53,9 @@ changes:
 Counting stays an accounting-only act against the existing `beansOwing`
 balance, and the deduction moves into the ante handler, expressed in
 gas-meter terms. `ChargeBeans` splits into `AddBeansOwing` (track debt,
-never touch the bank) and `SettleBeansOwing` (settle the debt into a gas
-amount and a fee amount at the ante-handler charging point, leaving the
-caller to dispose of them). A minimum-gas-price
+never touch the bank) and `SettleBeansOwing` (settle the debt at the
+ante-handler charging point through its caller-supplied disposition). A
+minimum-gas-price
 parameter ties the two worlds together: during simulation it translates
 bean fees into extra `gas_used` so the client's estimate covers them;
 during execution it is an enforced floor on the tx's effective gas price,
@@ -134,16 +134,39 @@ the `minFeeDebit` threshold) moves coins. Split
   keeper consult `msg_type_bean_overrides` (a matching entry is a
   price menu that replaces the default per-unit price for that message
   type) and emit a typed provenance event per charge.
-- **`SettleBeansOwing(ctx, addr) (beanGas, beanFees)`** — settle the
-  address's `beansOwing` record: drain its accumulated balance down to
-  dust or nothing (rather than waiting for the `minFeeDebit` threshold),
-  adjusting the `beansOwing` record the way the debit did, and convert the
-  settled beans by the existing arithmetic — the fee due is
-  `beans × fee_unit_price / beans_per_unit["feeUnit"]`, and the gas due is
-  that fee ÷ `min_gas_price`. The keeper moves no coins here: it adjusts
-  the `beansOwing` record, returns `(beanGas, beanFees)`, and leaves it
-  entirely to the caller to implement the policy for those values (consume
-  the gas, deduct the fee, burn, redirect).
+- **`SettleBeansOwing(ctx, addr, availableFees, dispose) error`** — settle
+  the address's `beansOwing` record, where `availableFees` is `sdk.Coins`
+  and `dispose` has type `func(beanGas uint64, beanFees sdk.Coins) error`.
+  It drains the accumulated balance down to dust or nothing (rather than
+  waiting for the `minFeeDebit` threshold), but changes the record only
+  after its caller accepts the calculated charge. In abstract pseudocode:
+
+  ```text
+  feeUnits = beansOwing / beans_per_unit["feeUnit"]
+  beanFees = fee_unit_price * feeUnits
+
+  # A multi-denom fee_unit_price is one composite price, not a menu of
+  # interchangeable partial payments. Every priced denom must be available.
+  if !availableFees.IsAllGTE(beanFees):
+      return insufficient funds
+
+  beanGas = 0
+  for each nonzero coin in beanFees:
+      price = min_gas_price[coin.denom]
+      if price <= 0:
+          return invalid min_gas_price configuration
+      beanGas += ceil(coin.amount / price)
+
+  if err = dispose(beanGas, beanFees); err != nil:
+      return err
+  beansOwing -= feeUnits * beans_per_unit["feeUnit"]
+  return nil
+  ```
+
+  Thus the keeper neither moves coins nor consumes gas itself. The caller
+  implements that policy in `dispose` (consume the gas, deduct the fee,
+  burn, redirect). The whole-number conversion deliberately leaves fewer
+  than one fee unit of beans as dust.
 
 All `vm.ControllerAdmissionMsg` implementations switch from `ChargeBeans`
 to `AddBeansOwing` — admission keeps *counting* exactly where it counts
@@ -211,7 +234,7 @@ flowchart LR
   B --> C[BeanFeeDecorator]
   C --> D{executing?}
   D -- yes --> E[require gasLimit > 0 and\nfees/gasLimit ≥ min_gas_price]
-  E --> F["SettleBeansOwing →\n(beanGas, beanFees)"]
+  E --> F["SettleBeansOwing\nwith available fees + dispose"]
   D -- simulate --> F
   F --> G[consume beanGas\nfrom gas meter]
   F -- executing only --> H[deduct + dispose beanFees]
@@ -224,9 +247,12 @@ flowchart LR
   effective gas price `suppliedFees / suppliedGasLimit ≥ min_gas_price`.
   This is what makes the gas-meter expression of bean fees sound: gas
   consumed at a floored price is worth at least the corresponding coins.
-- **Convert:** call `swingsetKeeper.SettleBeansOwing(...)`, then count
-  `beanGas` against the context's gas meter — the bean charge occupies
-  part of the supplied gas limit.
+- **Convert and dispose:** call
+  `swingsetKeeper.SettleBeansOwing(ctx, feePayer, suppliedFees, dispose)`.
+  Its `dispose` callback counts `beanGas` against the context's gas meter
+  (so the bean charge occupies part of the supplied gas limit), then applies
+  the execution-only fee disposition below. If either action fails, the
+  keeper leaves `beansOwing` unchanged.
 - **Dispose (executing only):** deduct `beanFees` from the fee payer and
   split it per params — for each denom, `bean_fee_burn_fraction`'s share
   of the coins destroyed with `BankKeeper.BurnCoins` via the `x/swingset`
@@ -256,7 +282,8 @@ solve then.)
 `AdmissionDecorator.AnteHandle` already special-cases `simulate` (it
 swallows admission errors "otherwise our gas estimation will be too
 low"). Under `simulate`, `BeanFeeDecorator` skips the floor check and all
-bank movements but still calls `SettleBeansOwing` and consumes `beanGas`
+bank movements but still calls `SettleBeansOwing` with a simulation
+`dispose` callback that consumes `beanGas`
 (`beanGas = bean fee coins ÷ min_gas_price`) — so the standard Cosmos
 simulate RPC returns a `gas_used` that already includes the bean charge.
 A client that multiplies that estimate by its own gas price (which the
@@ -334,7 +361,8 @@ decided in review and are now settled in the design above:
   chain-consensus min gas price exists to reuse; the cosmos-sdk
   `minimum-gas-prices` is node-local only).
 - **Residual `beansOwing` charges.** `BeanFeeDecorator` calls
-  `SettleBeansOwing(ctx, addr)` after every transaction's accounting calls,
+  `SettleBeansOwing(ctx, addr, suppliedFees, dispose)` after every
+  transaction's accounting calls,
   draining as much of the address's accumulated bean debt as possible to
   coins immediately (leaving dust), so no charge waits for the old
   threshold-debit.
