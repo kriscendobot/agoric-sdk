@@ -158,9 +158,8 @@ the `minFeeDebit` threshold) moves coins. Split
   beanGas = 0
   for each nonzero coin in beanFees:
       price = min_gas_price[coin.denom]
-      if price <= 0:
-          return invalid min_gas_price configuration
-      beanGas += ceil(coin.amount / price)
+      if price > 0:
+          beanGas += ceil(coin.amount / price)
 
   if err = dispose(beanGas, beanFees); err != nil:
       return err
