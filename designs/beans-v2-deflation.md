@@ -114,6 +114,17 @@ string bean_fee_collector = 13;
 // (not `bean_gas_price`) so a future consensus-level min gas price can
 // subsume it.
 repeated cosmos.base.v1beta1.DecCoin min_gas_price = 14;
+
+// A complete substitute price for one fee quantum. The wrapper preserves the
+// existing fee_unit_price wire shape (a repeated Coin) for each alternative.
+message FeeUnitPriceAlternative {
+  repeated cosmos.base.v1beta1.Coin price = 1
+      [(gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins", (gogoproto.nullable) = false];
+}
+
+// Complete substitute prices, in descending preference after fee_unit_price.
+// Empty by default, which preserves the existing fee_unit_price behavior.
+repeated FeeUnitPriceAlternative fee_unit_price_alternatives = 15;
 ```
 
 `MsgTypeBeans` is `{ string msg_type_url; repeated StringBeans beans; }`,
@@ -140,18 +151,21 @@ the `minFeeDebit` threshold) moves coins. Split
   `func(beanGas uint64, beanFees sdk.Coins) error`. It drains the
   accumulated balance down to dust or nothing (rather than waiting for the
   `minFeeDebit` threshold), but changes the record only after its caller
-  accepts the calculated charge. `fee_unit_price` is an ordered menu of
-  interchangeable fee quanta, not one composite multi-denom price. In
-  abstract pseudocode:
+  accepts the calculated charge. `fee_unit_price` remains one composite
+  `sdk.Coins` price for a fee quantum, preserving its current meaning.
+  `fee_unit_price_alternatives` is an ordered `[]sdk.Coins` list of complete
+  substitute prices. The preferred composite price precedes the alternatives
+  in the selection order. In abstract pseudocode:
 
   ```text
   feeUnits = beansOwing / beans_per_unit["feeUnit"]
+  feeQuantumPrices = [fee_unit_price, ...fee_unit_price_alternatives]
   if feeBudget == nil:
-      # Simulation quotes the whole debt in the first positive-priced denom.
-      beanFees = quoteFeeInPreferredDenom(feeUnits, fee_unit_price)
+      # Simulation quotes the whole debt at the preferred composite price.
+      beanFees = quoteFeeAtPrice(feeUnits, fee_unit_price)
   else:
       beanFees = selectFeeQuantaFromBudget(
-          feeUnits, fee_unit_price, feeBudget)
+          feeUnits, feeQuantumPrices, feeBudget)
   if beanFees is an error:
       return insufficient funds
 
@@ -175,30 +189,32 @@ the `minFeeDebit` threshold) moves coins. Split
       remainingFees = mutable copy of feeBudget
       remainingFeeUnits = feeUnits
       beanFees = empty Coins
-      for each positive quantum price in feeQuantumPrices, in preference order:
-          payableUnits = min(
-              remainingFeeUnits,
-              remainingFees[price.denom] / price.amount)
-          payment = payableUnits * price.amount
-          if payment == 0:
+      for each non-empty quantum price in feeQuantumPrices, in preference order:
+          payableUnits = remainingFeeUnits
+          for each coin in price:
+              payableUnits = min(
+                  payableUnits, remainingFees[coin.denom] / coin.amount)
+          if payableUnits == 0:
               continue
-          beanFees[price.denom] += payment
-          remainingFees[price.denom] -= payment
+          payment = scale every coin in price by payableUnits
+          beanFees += payment
+          remainingFees -= payment
           remainingFeeUnits -= payableUnits
           if remainingFeeUnits == 0:
               return beanFees
       return insufficient funds
 
-  quoteFeeInPreferredDenom(feeUnits, feeQuantumPrices):
-      firstPrice = first positive quantum price in preference order
-      if firstPrice is absent:
+  quoteFeeAtPrice(feeUnits, price):
+      if price is empty:
           return invalid fee_unit_price configuration
-      return Coins(firstPrice.denom, firstPrice.amount * feeUnits)
+      return scale every coin in price by feeUnits
   ```
 
-  Thus each selected denom can pay part of the total fee-unit debt, while a
-  quantum itself is never underfunded. The helper returns only the selected
-  `beanFees` (or an error); its mutable `remainingFees` copy never escapes.
+  Thus each selected alternative pays a whole fee quantum. Every coin in its
+  composite price is required, so a multi-denom `fee_unit_price` cannot be
+  reinterpreted as a menu of single-denom choices. The helper returns only the
+  selected `beanFees` (or an error); its mutable `remainingFees` copy never
+  escapes.
 
   Thus the keeper neither moves coins nor consumes gas itself. The caller
   implements that policy in `dispose` (consume the gas, deduct the fee,
@@ -344,9 +360,9 @@ message charges retain their existing exemptions unchanged.
 
 - Genesis/upgrade default: `msg_type_bean_overrides = []`,
   `bean_fee_burn_fraction = []`, `bean_fee_collector = "vbank/reserve"`,
-  `min_gas_price` unset (simulation folding and floor off). With those
-  defaults the chain behaves exactly as today; every deviation is a later
-  governance act.
+  `min_gas_price` unset (simulation folding and floor off), and
+  `fee_unit_price_alternatives = []`. With those defaults the chain behaves
+  exactly as today; every deviation is a later governance act.
 - **Go formula → params:** migrate the bean
   calculations currently hardcoded in `x/swingset` Go into equivalent
   `msg_type_bean_overrides` entries — the upgrade handler (or genesis for
@@ -365,18 +381,18 @@ message charges retain their existing exemptions unchanged.
 - JS mirror: extend `sim-params.js` and the `ParamsSDKType` usage in
   `packages/cosmic-swingset` so simulated chains exercise the same shape.
 
-### Open question: existing `fee_unit_price` semantics and compatibility
+### `fee_unit_price` compatibility and alternatives
 
-Before implementation, confirm how the live `FeeUnitPrice` parameter and
-historical governance values interpret more than one denom. The new ordered
-menu reading must not silently reinterpret a live composite-price value. The
-compatibility heuristic is conservative: a singleton positive-denom value has
-the same unambiguous meaning and can be carried forward; a multi-denom value
-requires an explicit governance choice of menu order and prices before the
-new settlement path is enabled. Inspect the active parameter and historical
-param-change proposals before proposing that conversion. Keeping the field
-name avoids needless API churn, but does not by itself establish semantic
-compatibility.
+`fee_unit_price` retains its existing `sdk.Coins` composite-price semantics.
+The settlement path charges every coin in that price together, so existing
+multi-denom governance values retain their meaning. Add
+`fee_unit_price_alternatives` as an empty-by-default `[]sdk.Coins` parameter.
+The protobuf representation is a repeated composite-price wrapper, each
+containing the existing repeated `Coin` shape; generated Go presents it as
+`[]sdk.Coins`. Its elements are complete alternatives to `fee_unit_price` in
+descending governance preference. An empty alternatives list preserves current
+behavior exactly. Governance may add alternatives later without changing the
+preferred price or reinterpreting historic values.
 
 ## Out of scope
 
@@ -416,10 +432,11 @@ decided in review and are now settled in the design above:
   draining as much of the address's accumulated bean debt as possible to
   coins immediately (leaving dust), so no charge waits for the old
   threshold-debit.
-- **Fee-unit price selection.** `fee_unit_price` is an ordered menu of
-  interchangeable fee quanta. Execution selects enough whole quanta from
-  the immutable fee budget in preference order; simulation supplies no
-  budget and quotes the entire debt in the first positive-priced denom.
+- **Fee-unit price selection.** `fee_unit_price` is the preferred composite
+  fee quantum, and `fee_unit_price_alternatives` is the descending-preference
+  list of composite substitutes. Execution selects enough whole quanta from
+  the immutable fee budget in that order; simulation supplies no budget and
+  quotes the entire debt at the preferred composite price.
 - **Burn per-denom.** `bean_fee_burn_fraction` is DecCoins, so the burn
   fraction is per-denom (a native denom like BLD burns, an
   IBC-transferred asset like USDC need not).
