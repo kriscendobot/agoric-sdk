@@ -134,20 +134,25 @@ the `minFeeDebit` threshold) moves coins. Split
   keeper consult `msg_type_bean_overrides` (a matching entry is a
   price menu that replaces the default per-unit price for that message
   type) and emit a typed provenance event per charge.
-- **`SettleBeansOwing(ctx, addr, availableFees, dispose) error`** — settle
-  the address's `beansOwing` record, where `availableFees` is `sdk.Coins`
-  and `dispose` has type `func(beanGas uint64, beanFees sdk.Coins) error`.
-  It drains the accumulated balance down to dust or nothing (rather than
-  waiting for the `minFeeDebit` threshold), but changes the record only
-  after its caller accepts the calculated charge. In abstract pseudocode:
+- **`SettleBeansOwing(ctx, addr, feeBudget, dispose) error`** — settle the
+  address's `beansOwing` record, where `feeBudget` is immutable `sdk.Coins`
+  (or `nil` during simulation) and `dispose` has type
+  `func(beanGas uint64, beanFees sdk.Coins) error`. It drains the
+  accumulated balance down to dust or nothing (rather than waiting for the
+  `minFeeDebit` threshold), but changes the record only after its caller
+  accepts the calculated charge. `fee_unit_price` is an ordered menu of
+  interchangeable fee quanta, not one composite multi-denom price. In
+  abstract pseudocode:
 
   ```text
   feeUnits = beansOwing / beans_per_unit["feeUnit"]
-  beanFees = fee_unit_price * feeUnits
-
-  # A multi-denom fee_unit_price is one composite price, not a menu of
-  # interchangeable partial payments. Every priced denom must be available.
-  if !availableFees.IsAllGTE(beanFees):
+  if feeBudget == nil:
+      # Simulation quotes the whole debt in the first positive-priced denom.
+      beanFees = quoteFeeInPreferredDenom(feeUnits, fee_unit_price)
+  else:
+      beanFees = selectFeeQuantaFromBudget(
+          feeUnits, fee_unit_price, feeBudget)
+  if beanFees is an error:
       return insufficient funds
 
   beanGas = 0
@@ -162,6 +167,39 @@ the `minFeeDebit` threshold) moves coins. Split
   beansOwing -= feeUnits * beans_per_unit["feeUnit"]
   return nil
   ```
+
+  `selectFeeQuantaFromBudget` makes the menu semantics and its mutation
+  boundary explicit:
+
+  ```text
+  selectFeeQuantaFromBudget(feeUnits, feeQuantumPrices, feeBudget):
+      remainingFees = mutable copy of feeBudget
+      remainingFeeUnits = feeUnits
+      beanFees = empty Coins
+      for each positive quantum price in feeQuantumPrices, in preference order:
+          payableUnits = min(
+              remainingFeeUnits,
+              remainingFees[price.denom] / price.amount)
+          payment = payableUnits * price.amount
+          if payment == 0:
+              continue
+          beanFees[price.denom] += payment
+          remainingFees[price.denom] -= payment
+          remainingFeeUnits -= payableUnits
+          if remainingFeeUnits == 0:
+              return beanFees
+      return insufficient funds
+
+  quoteFeeInPreferredDenom(feeUnits, feeQuantumPrices):
+      firstPrice = first positive quantum price in preference order
+      if firstPrice is absent:
+          return invalid fee_unit_price configuration
+      return Coins(firstPrice.denom, firstPrice.amount * feeUnits)
+  ```
+
+  Thus each selected denom can pay part of the total fee-unit debt, while a
+  quantum itself is never underfunded. The helper returns only the selected
+  `beanFees` (or an error); its mutable `remainingFees` copy never escapes.
 
   Thus the keeper neither moves coins nor consumes gas itself. The caller
   implements that policy in `dispose` (consume the gas, deduct the fee,
@@ -281,9 +319,9 @@ solve then.)
 
 `AdmissionDecorator.AnteHandle` already special-cases `simulate` (it
 swallows admission errors "otherwise our gas estimation will be too
-low"). Under `simulate`, `BeanFeeDecorator` skips the floor check and all
-bank movements but still calls `SettleBeansOwing` with a simulation
-`dispose` callback that consumes `beanGas`
+low"). Under `simulate`, `BeanFeeDecorator` passes `nil` as `feeBudget`,
+skips the floor check and all bank movements, and still calls
+`SettleBeansOwing` with a simulation `dispose` callback that consumes `beanGas`
 (`beanGas = bean fee coins ÷ min_gas_price`) — so the standard Cosmos
 simulate RPC returns a `gas_used` that already includes the bean charge.
 A client that multiplies that estimate by its own gas price (which the
@@ -328,6 +366,19 @@ message charges retain their existing exemptions unchanged.
 - JS mirror: extend `sim-params.js` and the `ParamsSDKType` usage in
   `packages/cosmic-swingset` so simulated chains exercise the same shape.
 
+### Open question: existing `fee_unit_price` semantics and compatibility
+
+Before implementation, confirm how the live `FeeUnitPrice` parameter and
+historical governance values interpret more than one denom. The new ordered
+menu reading must not silently reinterpret a live composite-price value. The
+compatibility heuristic is conservative: a singleton positive-denom value has
+the same unambiguous meaning and can be carried forward; a multi-denom value
+requires an explicit governance choice of menu order and prices before the
+new settlement path is enabled. Inspect the active parameter and historical
+param-change proposals before proposing that conversion. Keeping the field
+name avoids needless API churn, but does not by itself establish semantic
+compatibility.
+
 ## Out of scope
 
 - Computron accounting (`xsnapComputron`, `blockComputeLimit`,
@@ -366,6 +417,10 @@ decided in review and are now settled in the design above:
   draining as much of the address's accumulated bean debt as possible to
   coins immediately (leaving dust), so no charge waits for the old
   threshold-debit.
+- **Fee-unit price selection.** `fee_unit_price` is an ordered menu of
+  interchangeable fee quanta. Execution selects enough whole quanta from
+  the immutable fee budget in preference order; simulation supplies no
+  budget and quotes the entire debt in the first positive-priced denom.
 - **Burn per-denom.** `bean_fee_burn_fraction` is DecCoins, so the burn
   fraction is per-denom (a native denom like BLD burns, an
   IBC-transferred asset like USDC need not).
