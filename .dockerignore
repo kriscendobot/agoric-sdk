@@ -41,6 +41,9 @@ packages/xsnap/build.config.env
 # `@@AGORIC_DOCKER_SUBMODULES@@`
 packages/xsnap/moddable
 packages/xsnap/xsnap-native
+# Latest xsnap variant (see packages/xsnap/src/xsnap.js resolveXsnapWorkerPath)
+packages/xsnap/latest/moddable
+packages/xsnap/latest/xsnap-native
 
 # XXX override for ymax-planner build which needs `dist`
 # The /services hierarchy should not be included in agoric-sdk builds anyway
