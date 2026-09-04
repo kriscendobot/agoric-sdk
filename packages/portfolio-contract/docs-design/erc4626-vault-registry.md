@@ -83,7 +83,7 @@ a naming convention (`Ext` for "extensible").
 | `type-guards.ts:133-136` | `TargetAllocationShape` enumerates `keys(PoolPlaces)`. | Used in `openPortfolio`/`rebalance` offer args (`type-guards-steps.ts:164,172`) and in `PortfolioDelegatedSetTargetAllocationParamsShape` (`delegation.exo.ts:38-46`). |
 | `portfolio.flows.ts:625` | `getAssetPlaceRefKind` classifies a ref as a position by `keys(PoolPlaces).includes(ref)`. | Module-scope; not parameterized by contract state. |
 | `portfolio.flows.ts:683,785` | `PoolPlaces[poolKey]` supplies `protocol` and `chainName` to `wayFromSrcToDest`. | Same. `wayFromSrcToDest` is exported and unit-tested as a pure function. |
-| `portfolio.contract.ts:247-277` | `ERC4626Contracts = { [K in keyof typeof ERC4626PoolPlaces]: '0x…' }`, mixed into `EVMContractAddresses`. | The type that ties `privateArgs.contracts` keys to instrument ids. |
+| `portfolio.contract.ts:247-277` | ``ERC4626Contracts = { [K in keyof typeof ERC4626PoolPlaces]: `0x${string}` }``, mixed into `EVMContractAddresses`. | The type that ties `privateArgs.contracts` keys to instrument ids. |
 | `pos-evm.flows.ts:497-524` | `ERC4626Protocol.supply/withdraw` resolve the vault by `a[poolKey]` where `a = contracts[chain]`. | The only place the address is consumed. Small and easy to redirect. |
 | `tools/network/buildGraph.ts:157-175` | Pool graph nodes derive from `typedEntries(PoolPlaces)`. | The planner's route graph. Note it already synthesizes nodes for every `PoolPlaces` entry whose hub is present, so `PROD_NETWORK.pools` is only carrying extra metadata such as `blockDepositReason`. |
 | `services/ymax-planner/src/evm-utils.ts:57` | Vault addresses picked out of the statically imported `axelarConfig`. | Planner redeploy required today. |
@@ -120,8 +120,9 @@ const instrumentRegistry = zone.mapStore('instruments', {
     {
       protocol: M.string(),             // 'ERC4626'
       chainName: M.string(),            // AxelarChain name
-      address: M.string(),              // EIP-55 checksummed 0x…
-      status: M.string(),               // see below
+      address: M.string(),              // EIP-55 checksummed `0x${string}`
+      status: M.or(                     // closed enum, see below
+        'probationary', 'active', 'depositsBlocked', 'retired'),
     },
     { asset: M.string(), depositCap: M.nat(), note: M.string() },
     M.record(),                         // tolerate fields added later
@@ -129,13 +130,22 @@ const instrumentRegistry = zone.mapStore('instruments', {
 });
 ```
 
-Two shape notes that are load-bearing:
+Three shape notes that are load-bearing:
 
 - The `valueShape` is persisted with the store and cannot be tightened in a
   later incarnation. Use `M.splitRecord` with an open rest pattern from day one
   so that fields can be added without a store migration.
 - `keyShape: M.string()` matches what the positions store already does, so
   positions and registry entries stay key-compatible.
+- `status` is the one field that is pinned to a closed enum rather than left as
+  `M.string()`, and this is deliberate. R3 says a durable `valueShape` can never
+  be tightened later, so `address` is rightly left open (`M.string()`) against a
+  future chain family with a different address format. But `status` is a closed
+  four-value state machine whose members are already fixed by this design;
+  pinning it costs nothing future-facing and buys durable rejection of a typo
+  (`'actve'`), which under `M.string()` would persist forever and be silently
+  treated as non-tradable. Pin the enum you control; leave open only the fields a
+  later incarnation might legitimately need to widen.
 
 `status` is a small state machine, and it is the answer to "you can add but you
 can never remove":
@@ -154,7 +164,7 @@ can never remove":
 addERC4626Vault({
   instrumentId,   // 'ERC4626_morphoFooUsdc_Base'
   chainName,      // 'Base'
-  address,        // '0x…', EIP-55 checksummed
+  address,        // '0x...', EIP-55 checksummed hex (`0x${string}`)
   asset,          // optional; defaults to that chain's USDC from privateArgs
   depositCap,     // optional NatValue
 })
@@ -165,15 +175,26 @@ Validation performed synchronously by `addERC4626Vault`:
 
 1. `instrumentId` matches `/^ERC4626_[A-Za-z0-9]+_[A-Za-z0-9]+$/` and its chain
    suffix equals `chainName`. This keeps `chainOf`'s existing syntactic fallback
-   correct for free.
+   correct for free. Note the exact-three-segment consequence: the middle
+   (vault-name) segment is `[A-Za-z0-9]+`, so it may not itself contain `_`.
+   `ERC4626_morphoFooUsdc_Base` is accepted; `ERC4626_morpho_foo_Base` (a
+   vault-name segment `morpho_foo` carrying an underscore) is **rejected**,
+   because the trailing `_[A-Za-z0-9]+$` then fails to match `foo_Base`. Vault
+   names must be camel-cased into a single segment before they become an id; a
+   name with a literal `_` cannot be encoded and must be renamed.
 2. `chainName` is a key of `AxelarChain` and the contract has a configuration
    for it in `privateArgs.contracts`.
 3. `address` is a well-formed, EIP-55 checksummed hex address. Requiring the
    checksum (not merely the hex) is a cheap typo detector.
-4. The id is not already registered with a **different** address. Re-adding with
-   the same address is a no-op; re-pointing an existing id is refused outright.
-   See risk R1: the registry is append-only in the values that matter.
-5. The address is not already registered under a different id on the same chain.
+4. The id is not already registered with a **different** address. The comparison
+   is made after normalizing both the stored and the incoming address to their
+   EIP-55 checksummed form, so a re-add that differs only in hex letter-casing is
+   the no-op it should be, not a spurious "different address" refusal. Re-adding
+   the same (normalized) address is a no-op; re-pointing an existing id to a
+   genuinely different address is refused outright. See risk R1: the registry is
+   append-only in the values that matter.
+5. The address is not already registered under a different id on the same chain
+   (again compared after EIP-55 normalization).
 
 There is deliberately no `removeInstrument`. Retirement is a status change.
 
@@ -188,9 +209,19 @@ single helper:
 ```js
 const lookupVault = (chainName, poolKey) =>
   (instrumentRegistry.has(poolKey) && instrumentRegistry.get(poolKey).address)
-  || contracts[chainName][poolKey]
+  || contracts[chainName]?.[poolKey]
   || Fail`no address for ${q(poolKey)} on ${q(chainName)}`;
 ```
+
+The `?.` on `contracts[chainName]` is not cosmetic: without it, a `chainName`
+that is not a key of `contracts` throws a raw `TypeError` ("Cannot read
+properties of undefined") before reaching the intended `Fail`, turning an
+unconfigured-chain corner into an unhelpful crash.
+
+`lookupVault` deliberately gates on nothing but existence, and never on `status`.
+That is correct precisely because `address` is append-only (R1): resolving it at
+offer acceptance or again mid-flow yields the same value, so the read is
+replay-safe. `status` is the opposite case, and §3.4 draws the distinction.
 
 The registry is an **overlay** on `privateArgs.contracts`. This is the cheapest
 correct option:
@@ -229,15 +260,31 @@ const AssetPlaceRefShapeExt = M.or(
   PoolKeyShapeExt,                  // M.string(), was ...keys(PoolPlaces)
 );
 
-// membership, in code, at each place external input is accepted
-const assertKnownPlace = ref => {
+// membership, in code, at each place external input is accepted.
+// `role` is the ref's position in the step: 'dest' for a place funds move INTO
+// (a deposit), 'src' for a place funds move OUT OF (a withdrawal). Existence is
+// required for both; the tradable-status gate applies to 'dest' only.
+const assertKnownPlace = (ref, role) => {
   if (!isInstrumentId(ref)) return;            // seat/chain/account refs unaffected
   const info = providePoolPlace(ref);
   info || Fail`unknown instrument ${q(ref)}`;
+  if (role === 'src') return;                  // withdrawals must succeed from any
+                                               // known instrument (R8), even a
+                                               // retired/probationary one
   info.status === 'active' || info.status === 'depositsBlocked' ||
-    Fail`instrument ${q(ref)} is not tradable`;
+    Fail`instrument ${q(ref)} does not accept deposits`;
 };
 ```
+
+The `role` parameter is not optional polish — it is what stops this snippet from
+falsifying the document's own R8 invariant. Threading `src`/`dest` from every
+call site is load-bearing: a status gate that ignores direction and applies to
+every ref would reject the withdrawal steps whose `src` names a `retired` or
+`probationary` instrument, which is exactly the fund-trapping behavior R8 and the
+`retired` state exist to prevent. Builders copy the snippet, not the prose, so
+the snippet must encode the asymmetry. Each of the four entry points below hands
+`assertKnownPlace` the role it derives from the `MovementDesc` (`src` vs `dest`
+of each step), not a bare ref.
 
 Four consequences worth being explicit about:
 
@@ -264,6 +311,68 @@ Four consequences worth being explicit about:
   change is upgrade-safe. But it does mean a guard can never reflect a
   mid-incarnation registry addition, which is precisely why the guard must be
   structural rather than enumerated.
+
+#### Where each registry field is read, and its replay/TOCTOU character
+
+`assertKnownPlace` runs at the four offer/step-acceptance entry points above. It
+is **not** the point where funds actually move — that is the async flow at
+`pos-evm.flows.ts:497-511` (`usdc.approve` then `vault.deposit`). The two are
+separated in time and by a durable-log replay, so the fields the flow reads must
+each be classified:
+
+| Field | Read where | Character |
+| --- | --- | --- |
+| `address` | `lookupVault`, inside the flow at fund movement | append-only (R1): a replayed read yields the same value, **replay-safe** |
+| `protocol`, `chainName` | pool-ctx build / `wayFromSrcToDest` | append-only, **replay-safe** |
+| `status` | `assertKnownPlace` at acceptance only | **mutable** — an acceptance-only check is a **TOCTOU / replay hazard** |
+
+The `status` row is the gap. `lookupVault` (3.3) returns the address on existence
+alone, with no status check, and the only status enforcement (`assertKnownPlace`)
+runs at acceptance, not at the deposit. Between a deposit offer's acceptance and
+its (possibly replayed) execution, a `setInstrumentStatus` call can flip the
+instrument to `depositsBlocked` or `retired`; the in-flight deposit would still
+execute against the now-blocked vault. R1 already states the address invariant;
+the parallel invariant for the *mutable* `status` field must be stated too: **a
+deposit's permission decision must be fixed at acceptance and carried into the
+flow, not re-derived from live registry state mid-flow.**
+
+The naive fix — re-read `status` inside the flow at fund movement — closes the
+TOCTOU but *reopens* R1's replay problem in the status dimension: a flow that
+read `active` originally but `retired` on replay would diverge and fail. So the
+correct resolution is not "check status later" but "decide once, deterministically,
+and journal the decision": `assertKnownPlace(dest, 'dest')` at acceptance both
+gates admission and captures the permitted-at-acceptance fact into the flow's
+arguments (which are journaled and replay-identically), and the flow acts on that
+captured fact rather than on a fresh `instrumentRegistry.get(dest).status` read.
+A later `setInstrumentStatus('retired')` then stops *new* deposits at their own
+acceptance, and does not retroactively strand or diverge an already-accepted one —
+which is the behavior R8 and the two-phase activation (R5) both assume.
+
+#### Reconciliation with PR #15
+
+§3.4 loosens `AssetPlaceRefShape`/`TargetAllocationShape` to a structural
+`M.string()` arm and moves membership out of the interface guard into
+`assertKnownPlace`. This is, on its face, the opposite of the direction dckc gave
+on the still-open PR #15 (2026-07-17): "the interface guards *should* use `Foo`,
+not `FooExt` ... the guard should replace the `mustMatch`", which #15 then
+implemented in commit `2ad39fff54`. Because #18 lives in the same package and the
+same shape family, that tension must be reconciled explicitly rather than left
+for a reviewer to notice.
+
+The reconciliation is the per-incarnation nature of guards (R2), and it is
+genuinely a different case, not a reversal. dckc's rule applies when the guard
+*can* be authoritative — when the closed set it would enumerate is known at
+contract-preparation time and fixed for the incarnation. That holds for #15's
+shapes. It cannot hold here: the registry's whole purpose is mid-incarnation
+addition, and a guard built at preparation can never see a vault added after it
+(R2). "Let the guard replace the `mustMatch`" therefore has no valid target in
+the registry case — there is no fixed set for the guard to encode. So the
+membership check does not move *out of* a guard that could do the job; it moves
+*into code* because no guard can do the job. Where #15's set is static, the guard
+stays authoritative (#15's direction stands); where #18's set is dynamic, the
+structural guard plus `assertKnownPlace` is the only correct shape. The two are
+consistent applications of one principle — put the check where it can actually be
+authoritative — not conflicting ones.
 
 ### 3.5 Publication: vstorage is the distribution channel
 
@@ -386,8 +495,8 @@ not have to be given up, and it should not be.**
 2. Exhaustiveness: `PoolPlaces` is declared
    `satisfies Record<InstrumentId, PoolPlaceInfo>`, so a new id with no place
    entry fails to compile.
-3. `ERC4626Contracts = { [K in keyof typeof ERC4626PoolPlaces]: '0x…' }`, which
-   ties `privateArgs.contracts` keys to instrument ids.
+3. ``ERC4626Contracts = { [K in keyof typeof ERC4626PoolPlaces]: `0x${string}` }``,
+   which ties `privateArgs.contracts` keys to instrument ids.
 4. Editor autocomplete in the planner and the UI.
 5. An accidental runtime allowlist, through the enumerated patterns (section
    2.3). This one is not a type-system benefit and is the one that actually
@@ -423,8 +532,8 @@ an unknown but well-formed id is not.
 | Loss | Replacement | Cost |
 | --- | --- | --- |
 | `satisfies Record<InstrumentId, PoolPlaceInfo>` exhaustiveness on `PoolPlaces` | `satisfies Record<KnownInstrumentId, PoolPlaceInfo>`; unchanged for the static set | none, keep it |
-| `ERC4626Contracts` mapped type over `keyof typeof ERC4626PoolPlaces` | `Partial<Record<ERC4626InstrumentIdExt, '0x…'>>` plus a deploy-time validation script over `axelar-configs.js` | one small script; the mapped type was only checking the static set anyway, and the registry supersedes it |
-| `TargetAllocation = Partial<Record<InstrumentId \| '@'AxelarChain, bigint>>` key checking | open union, key checking becomes shape checking | acceptable; runtime check in 3.4 is stronger than what the type gave |
+| `ERC4626Contracts` mapped type over `keyof typeof ERC4626PoolPlaces` | ``Partial<Record<ERC4626InstrumentIdExt, `0x${string}`>>`` plus a deploy-time validation script over `axelar-configs.js` | one small script; the mapped type was only checking the static set anyway, and the registry supersedes it |
+| ``TargetAllocation = Partial<Record<InstrumentId \| `@${AxelarChain}`, bigint>>`` key checking | open union, key checking becomes shape checking | acceptable; runtime check in 3.4 is stronger than what the type gave |
 | `StatusFor['portfolio'].positionKeys: InstrumentId[]` | unchanged with the open union | none |
 | `YdsInstrument.id: AssetPlaceRef` (`instrument-status.ts:7`) | unchanged with the open union | none |
 | Planner `Partial<Record<InstrumentId, EvmAddress>>` (`engine.ts:212`) | unchanged with the open union | none |
@@ -479,9 +588,19 @@ that same holder can already upgrade the contract with arbitrary `privateArgs`.
 So the method grants no authority the key does not already have. What it removes
 is the code review, CI run, and release process that today sit incidentally
 between "someone picked an address" and "the contract will approve USDC to it".
-Restoring a deliberate equivalent is a design requirement, not a nicety:
-recommend the two-phase activation in R5, and consider requiring a distinct
-holder for `setInstrumentStatus(id, 'active')` than for `addERC4626Vault`.
+Restoring a deliberate equivalent is a design requirement, not a nicety: the
+two-phase activation in R5 is **required**, not recommended. On the split of
+authority, be honest about what the design as drawn actually provides: because
+both `addERC4626Vault` and `setInstrumentStatus` hang off the one `creatorFacet`,
+a single holder can register a vault *and* promote it to `active`, so the R5
+attestation is documentation, not an attenuation — the same key does both halves.
+If a genuine separation is wanted (and R5's fund-loss analysis is the argument
+that it should be), then the split must be stated as a **requirement** in §3.2
+and §5, not left as "consider": `setInstrumentStatus(id, 'active')` must be
+reachable only through a *distinct* capability (a separate facet or a separately
+held invitation) from the one that calls `addERC4626Vault`. Until §3.2 grants two
+separable capabilities, the two-phase story is a convention a single holder can
+skip, and the design should say so plainly rather than imply an enforced gate.
 
 **R5. A wrong or hostile vault address is a fund-loss vector.** `supply` does
 `usdc.approve(vaultAddress, amount)` followed by `vault.deposit(...)`
@@ -504,6 +623,24 @@ on chain through the resolver's invitation-based seat. Reading `asset()`,
 vault is a few lines in `evm-scanner.ts` next to the existing balance reads. A
 `depositCap` per instrument bounds the damage from an attestation that is itself
 wrong.
+
+Those four reads are necessary but not sufficient, and the attestation checklist
+must add the ERC-4626 **inflation / donation attack** (EIP-4626 § Security
+Considerations) explicitly, because it is the one an `asset()`/`decimals()`/
+`totalAssets()`-nonzero check waves straight through. A freshly deployed,
+near-zero-supply vault into which the attacker has directly transferred (donated)
+underlying tokens has a manipulated share-price: the first real depositor's
+shares round down to zero or near-zero, and the attacker redeems the depositor's
+principal. Every field the checklist above reads looks healthy. The attestation
+must therefore also either (a) sample the share-price ratio (`convertToShares`/
+`convertToAssets` for a unit amount, or `totalAssets`/`totalSupply`) across two
+reads separated in time and require it stable and sane, and/or (b) require a
+seasoning period and a minimum non-attacker `totalSupply` before promotion to
+`active`. Where neither is enforced, the residual exposure must be stated
+outright: a probationary vault can pass attestation and still expropriate its
+first depositor via a donation-inflated share price. This is the strongest single
+check to add, and it is the one most likely to be omitted precisely because the
+naive metadata reads all pass.
 
 **R6. Planner/YDS/UI version skew, in both directions.** Today
 `yds-portfolio-balances.ts:96-98` throws `Invalid YDS instrument id` on any
